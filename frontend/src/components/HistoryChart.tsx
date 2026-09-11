@@ -46,7 +46,7 @@ export function HistoryChart({ items }: { items: HistoryItem[] }) {
           Ещё никто не летал — ваш раунд будет первым в истории.
         </span>
       ) : (
-        <div style={{ position: 'relative', display: 'flex', gap: 7, justifyContent: 'space-between' }}>
+        <div style={{ position: 'relative', display: 'flex', gap: 2 }}>
           {/* Пунктир на отметке 2,00 — глазу нужна опора, иначе столбцы
               сравниваются только друг с другом и абсолютная величина теряется. */}
           <div
@@ -83,15 +83,16 @@ export function HistoryChart({ items }: { items: HistoryItem[] }) {
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
-                  gap: 5,
+                  gap: 4,
                 }}
               >
+                {/* Столбец занимает свою колонку целиком: между соседними
+                    остаётся только 2px шва, и гистограмма читается как единое
+                    полотно, а не как редкий частокол. */}
                 <div style={{ height: BAR_AREA, width: '100%', display: 'flex', alignItems: 'flex-end' }}>
                   <div
                     style={{
                       width: '100%',
-                      maxWidth: 14,
-                      margin: '0 auto',
                       height,
                       background: color,
                       transition: 'height .3s ease',
@@ -102,9 +103,12 @@ export function HistoryChart({ items }: { items: HistoryItem[] }) {
                 <span
                   className="num"
                   style={{
-                    fontSize: 10.5,
+                    fontSize: 9.5,
                     letterSpacing: 0,
                     color,
+                    // Моноширинные цифры: в плотном ряду пропорциональные
+                    // пляшут по горизонтали, и колонки визуально расходятся.
+                    fontVariantNumeric: 'tabular-nums',
                     // Значения читаются только при полной непрозрачности —
                     // ради них график и переделан.
                     opacity: 0.95,
@@ -114,7 +118,7 @@ export function HistoryChart({ items }: { items: HistoryItem[] }) {
                 </span>
 
                 {/* Исход раунда: точка — забрал, крестик — сгорело. */}
-                <span style={{ fontSize: 9, lineHeight: 1, opacity: 0.6, color }}>
+                <span style={{ fontSize: 8, lineHeight: 1, opacity: 0.6, color }}>
                   {cashedOut ? '●' : '✕'}
                 </span>
               </div>

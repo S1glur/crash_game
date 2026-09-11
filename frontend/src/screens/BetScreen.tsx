@@ -57,29 +57,42 @@ export function BetScreen({
       <Scene theme={theme} />
 
       <div className="screen-inner">
-        <div className="topbar">
-          <button className="chip" onClick={goToTheme} style={{ letterSpacing: '.1em' }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-            Тема
-          </button>
-          <span className="num" style={{ fontSize: 24 }}>
+        {/*
+          Шапка из трёх зон равной ширины: заголовок стоит ровно по центру
+          экрана независимо от того, сколько места заняли кнопки слева и справа.
+          При простом flex с распоркой он уезжал влево вслед за кнопкой «Тема».
+        */}
+        <div className="topbar topbar-3">
+          <div className="topbar-side">
+            <button className="chip" onClick={goToTheme} style={{ letterSpacing: '.1em' }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+              Тема
+            </button>
+          </div>
+
+          <span className="num topbar-title" style={{ fontSize: 24 }}>
             Воздушный шар
           </span>
-          <div className="grow" />
-          <button className="chip" onClick={onOpenRules}>
-            Правила
-          </button>
-          <button className="chip narrow-hide" onClick={onOpenLeaderboard}>
-            Таблица участников
-          </button>
-          <span className="chip chip-amber">
-            <span style={{ color: 'var(--amber)' }}>Баланс</span>
-            <span className="num" style={{ fontSize: 20, letterSpacing: 0 }}>
-              {fmtInt(balance)}
+
+          <div className="topbar-side topbar-side-end">
+            <button className="chip" onClick={onOpenRules}>
+              Правила
+            </button>
+            <button className="chip" onClick={onOpenLeaderboard} title="Таблица участников">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M6 4h12v2h3v3a4 4 0 0 1-3.6 4A5 5 0 0 1 13 16.9V19h3v2H8v-2h3v-2.1A5 5 0 0 1 6.6 13 4 4 0 0 1 3 9V6h3zM5 8v1a2 2 0 0 0 1 1.7V8zm14 0h-2v2.7A2 2 0 0 0 19 9z" />
+              </svg>
+              <span className="narrow-hide">Таблица участников</span>
+            </button>
+            <span className="chip chip-amber">
+              <span style={{ color: 'var(--amber)' }}>Баланс</span>
+              <span className="num" style={{ fontSize: 20, letterSpacing: 0 }}>
+                {fmtInt(balance)}
+              </span>
             </span>
-          </span>
+          </div>
         </div>
 
         <div className="bet-body scroll-y">
@@ -305,19 +318,20 @@ function ThemeToggle({
     <button
       onClick={() => onSelect(theme)}
       style={{
-        flexGrow: 1,
+        flex: '1 1 0',
         display: 'flex',
         alignItems: 'center',
+        justifyContent: 'center',
         gap: 11,
         padding: '11px 15px',
         background: active ? 'rgba(16,13,32,.82)' : 'rgba(16,13,32,.5)',
         border: `1px solid ${active ? color : 'rgba(242,234,219,.2)'}`,
         borderRadius: 3,
-        textAlign: 'left',
+        textAlign: 'center',
       }}
     >
       <span style={{ width: 9, height: 9, background: color, flexShrink: 0 }} />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'flex-start' }}>
         <span style={{ fontSize: 13, fontWeight: active ? 800 : 700, opacity: active ? 1 : 0.75 }}>
           {theme === 'green' ? 'Изумруд' : 'Бордо'}
         </span>

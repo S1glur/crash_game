@@ -223,3 +223,37 @@
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 12px 16px;
 }
+
+/*
+  Шапка в три зоны: боковые растягиваются одинаково, поэтому заголовок стоит
+  по центру экрана, а не по центру оставшегося места.
+*/
+.topbar-3 {
+  flex-wrap: nowrap;
+}
+
+.topbar-side {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.topbar-side-end {
+  justify-content: flex-end;
+}
+
+.topbar-title {
+  flex-shrink: 0;
+  text-align: center;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  /* На узком экране заголовок съедает место у кнопок — прячем его, кнопки важнее. */
+  .topbar-title {
+    display: none;
+  }
+}
