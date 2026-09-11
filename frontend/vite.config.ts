@@ -11,6 +11,10 @@ export default defineConfig({
     global: 'globalThis',
   },
   server: {
+    // По умолчанию Vite слушает только IPv6 (::1). Если на машине проверяющего
+    // localhost резолвится в 127.0.0.1, страница не открывается вообще —
+    // явная привязка убирает этот класс «у меня работает».
+    host: '127.0.0.1',
     proxy: {
       '/api': { target: 'http://localhost:8080', changeOrigin: true },
       '/ws': { target: 'http://localhost:8080', changeOrigin: true, ws: true },

@@ -22,7 +22,10 @@ interface FlightState {
   serverMultiplierAt: number
   levelsCrossed: number
   points: number
+  /** Где ждёт бустер. Известно до взлёта, поэтому маркер виден сразу. */
   boostLevelIndex: number | null
+  /** Сработал ли бустер — до этого маркер показываем приглушённым. */
+  boostApplied: boolean
   cashedOutAt: number | null
   winAmount: number
   finished: boolean
@@ -139,7 +142,8 @@ export const useGame = create<GameStore>((set, get) => ({
           serverMultiplierAt: performance.now(),
           levelsCrossed: 0,
           points: 0,
-          boostLevelIndex: null,
+          boostLevelIndex: started.boostLevelIndex >= 0 ? started.boostLevelIndex : null,
+          boostApplied: false,
           cashedOutAt: null,
           winAmount: 0,
           finished: false,
@@ -177,6 +181,7 @@ export const useGame = create<GameStore>((set, get) => ({
               flight: {
                 ...flight,
                 boostLevelIndex: event.levelIndex,
+                boostApplied: true,
                 serverMultiplier: event.multiplierAfter,
                 serverMultiplierAt: performance.now(),
               },

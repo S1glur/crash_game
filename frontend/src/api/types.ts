@@ -17,10 +17,19 @@ export interface ActiveRoundView {
   roundId: string
   theme: Theme
   bet: number
+  boostMultiplier: number
+  levelsCount: number
   levelThresholds: number[]
+  /** Уровень, на котором ждёт бустер; -1 — ставка без бустера. */
+  boostLevelIndex: number
+  resultHash: string
   multiplier: number
   levelsCrossed: number
+  boostApplied: boolean
+  points: number
+  elapsedMs: number
   cashedOutAt: number | null
+  winAmount: number
 }
 
 export interface GameState {
@@ -38,6 +47,8 @@ export interface StartedRound {
   boostMultiplier: number
   levelsCount: number
   levelThresholds: number[]
+  /** Уровень, на котором ждёт бустер; -1 — ставка без бустера. */
+  boostLevelIndex: number
   resultHash: string
   balanceAfter: number
 }

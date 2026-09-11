@@ -128,6 +128,7 @@ export function FlightScreen() {
             thresholds={flight.thresholds}
             levelsCrossed={flight.levelsCrossed}
             boostLevelIndex={flight.boostLevelIndex}
+            boostApplied={flight.boostApplied}
             boostMultiplier={flight.boostMultiplier}
           />
 
@@ -255,7 +256,8 @@ export function FlightScreen() {
             bet={flight.bet}
             points={flight.points}
             boostMultiplier={flight.boostMultiplier}
-            boostFired={flight.boostLevelIndex !== null}
+            boostFired={flight.boostApplied}
+            boostLevel={flight.boostLevelIndex}
             resultHash={flight.resultHash}
           />
         </div>
@@ -329,12 +331,14 @@ function RoundJournal({
   points,
   boostMultiplier,
   boostFired,
+  boostLevel,
   resultHash,
 }: {
   bet: number
   points: number
   boostMultiplier: number
   boostFired: boolean
+  boostLevel: number | null
   resultHash: string
 }) {
   return (
@@ -370,7 +374,9 @@ function RoundJournal({
             <span style={{ fontSize: 11.5, fontWeight: 600, lineHeight: 1.45, opacity: 0.68 }}>
               {boostFired
                 ? 'Коэффициент уже умножен'
-                : 'Ждёт на одном из уровней — сработает, если долетите раньше, чем заберёте'}
+                : boostLevel !== null
+                  ? `Ждёт на уровне ${boostLevel + 1} — сработает, если долетите туда раньше, чем заберёте`
+                  : 'Сработает, если долетите до его уровня раньше, чем заберёте'}
             </span>
           </div>
         </div>
