@@ -1,22 +1,63 @@
 import { useEffect, useMemo, useState } from 'react'
 import { PuzzleIcon } from '../components/PuzzleIcon'
 import { Scene } from '../components/Scene'
+import { UpsellModal } from '../components/UpsellModal'
 import { useGame } from '../store/gameStore'
+import { sound } from '../utils/sound'
 import { fmtInt, fmtMult } from '../utils/format'
 
 export function ResultScreen() {
   const result = useGame((s) => s.result)
   const config = useGame((s) => s.config)
   const rewards = useGame((s) => s.rewards)
+  const balance = useGame((s) => s.balance)
+  const betOptions = useGame((s) => s.betOptions)
+  const upsellShown = useGame((s) => s.upsellShown)
+  const markUpsellShown = useGame((s) => s.markUpsellShown)
+  const startWithBet = useGame((s) => s.startWithBet)
   const playAgain = useGame((s) => s.playAgain)
   const repeatBet = useGame((s) => s.repeatBet)
   const goToTheme = useGame((s) => s.goToTheme)
 
   const autoAdvanceSec = config?.ui.result_screen_auto_advance_sec ?? 10
   const [countdown, setCountdown] = useState(autoAdvanceSec)
+  const [upsellOpen, setUpsellOpen] = useState(false)
+
+  /**
+   * Что предложить в апсейле: самый сильный бустер, который игрок может
+   * оплатить уже зачисленным выигрышем. Если ни один не по карману —
+   * предложения нет, дразнить недоступной покупкой незачем.
+   */
+  const upsellOption = useMemo(() => {
+    if (!result || !config) return null
+    if (result.outcome !== 'cashout') return null
+    if (result.winAmount < config.upsell.min_win_amount) return null
+    return (
+      [...(betOptions[result.theme] ?? [])]
+        .filter((option) => option.boostMultiplier > 1 && option.cost <= balance)
+        .sort((a, b) => b.boostMultiplier - a.boostMultiplier)[0] ?? null
+    )
+  }, [result, config, betOptions, balance])
+
+  // Показываем не сразу: сначала дать увидеть свой выигрыш, потом предлагать.
+  useEffect(() => {
+    if (!upsellOption || upsellShown) return
+    const timer = setTimeout(() => {
+      setUpsellOpen(true)
+      markUpsellShown()
+      sound.select()
+    }, 1100)
+    return () => clearTimeout(timer)
+  }, [upsellOption, upsellShown, markUpsellShown])
 
   useEffect(() => {
     setCountdown(autoAdvanceSec)
+  }, [result?.roundId, autoAdvanceSec])
+
+  useEffect(() => {
+    // Пока висит апсейл, отсчёт заморожен: иначе экран уедет из-под окна,
+    // и у предложения не будет обещанных десяти секунд.
+    if (upsellOpen) return
     const timer = setInterval(() => {
       setCountdown((value) => {
         if (value <= 1) {
@@ -28,7 +69,7 @@ export function ResultScreen() {
       })
     }, 1000)
     return () => clearInterval(timer)
-  }, [autoAdvanceSec, goToTheme])
+  }, [upsellOpen, goToTheme])
 
   const breakdown = useMemo(() => {
     if (!result || !config) return null
@@ -313,6 +354,20 @@ export function ResultScreen() {
           </div>
         </div>
       </div>
+
+      {upsellOpen && upsellOption && (
+        <UpsellModal
+          winAmount={result.winAmount}
+          option={upsellOption}
+          balance={balance}
+          timeoutSec={config?.upsell.popup_timeout_sec ?? 10}
+          onAccept={() => {
+            setUpsellOpen(false)
+            void startWithBet(upsellOption.id)
+          }}
+          onClose={() => setUpsellOpen(false)}
+        />
+      )}
     </div>
   )
 }

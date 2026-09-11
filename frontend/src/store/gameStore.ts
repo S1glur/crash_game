@@ -57,6 +57,8 @@ interface GameStore {
   /** Собранные за сессию награды: бэкенд их не накапливает, ведём у себя. */
   rewards: string[]
   onboardingSeen: boolean
+  /** Апсейл показываем не чаще раза за сессию — требование ТЗ к сценарию 8. */
+  upsellShown: boolean
 
   init: () => Promise<void>
   refreshHistory: () => Promise<void>
@@ -70,8 +72,11 @@ interface GameStore {
   cashout: () => Promise<void>
   playAgain: () => void
   repeatBet: () => Promise<void>
+  startWithBet: (betOptionId: string) => Promise<void>
+  topUp: () => Promise<void>
   dismissError: () => void
   markOnboardingSeen: () => void
+  markUpsellShown: () => void
 }
 
 let unsubscribe: (() => void) | null = null
@@ -92,6 +97,7 @@ export const useGame = create<GameStore>((set, get) => ({
   totalPoints: 0,
   rewards: [],
   onboardingSeen: false,
+  upsellShown: false,
 
   async init() {
     try {
@@ -283,12 +289,36 @@ export const useGame = create<GameStore>((set, get) => ({
     await get().startRound()
   },
 
+  /**
+   * Взлёт конкретным вариантом ставки, минуя экран выбора — так апсейл
+   * «Закрепи успех» уводит игрока прямо в полёт с предложенным фрагментом.
+   */
+  async startWithBet(betOptionId) {
+    set({ selectedBetId: betOptionId, result: null, flight: null })
+    await get().startRound()
+  },
+
+  /** Пополнение демо-баланса до стартового — выход из тупика «нечем играть». */
+  async topUp() {
+    try {
+      const { balance } = await api.topUp()
+      sound.select()
+      set({ balance })
+    } catch (e) {
+      set({ error: (e as Error).message })
+    }
+  },
+
   dismissError() {
     set({ error: null })
   },
 
   markOnboardingSeen() {
     set({ onboardingSeen: true })
+  },
+
+  markUpsellShown() {
+    set({ upsellShown: true })
   },
 }))
 

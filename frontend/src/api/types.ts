@@ -91,6 +91,8 @@ export interface HistoryItem {
 
 /** Срез config/game.json — фронту нужны только эти ветки. */
 export interface GameConfig {
+  /** Стартовый баланс: до него пополняет POST /api/demo/topup. */
+  demo_user: { id: string; starting_balance: number }
   themes: Record<
     Theme,
     {
@@ -114,6 +116,11 @@ export interface GameConfig {
     points_per_line: number
     points_cashout_bonus: number
     points_boost_bonus: number
+  }
+  /** Порог и время жизни апсейл-попапа «Закрепи успех» (сценарий 8 ТЗ). */
+  upsell: {
+    min_win_amount: number
+    popup_timeout_sec: number
   }
   ui: {
     result_screen_auto_advance_sec: number

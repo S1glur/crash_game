@@ -20,6 +20,9 @@ GET {{host}}/api/history?limit=20
 ### Текущая конфигурация игры
 GET {{host}}/api/config
 
+### Пополнить демо-баланс до стартового (повторный вызов вернёт credited: 0)
+POST {{host}}/api/demo/topup
+
 ### Старт раунда — обычный, случайный исход
 POST {{host}}/api/round/start
 Content-Type: application/json

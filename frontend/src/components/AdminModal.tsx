@@ -168,6 +168,23 @@ export function AdminModal({ onClose }: { onClose: () => void }) {
           </Section>
         ))}
 
+        <Section title="Апсейл «Закрепи успех»">
+          <Field
+            label="Минимальный выигрыш для попапа"
+            hint="MIN_WIN_AMOUNT: ниже этой суммы предложение не показывается"
+            value={draft.upsell?.min_win_amount ?? 0}
+            step={10}
+            onChange={(v) => patch((n) => (n.upsell.min_win_amount = v))}
+          />
+          <Field
+            label="Автозакрытие попапа, сек"
+            hint="POPUP_TIMEOUT"
+            value={draft.upsell?.popup_timeout_sec ?? 0}
+            step={1}
+            onChange={(v) => patch((n) => (n.upsell.popup_timeout_sec = v))}
+          />
+        </Section>
+
         <Section title="Прочее">
           <Field
             label="Автопереход с экрана результата, сек"

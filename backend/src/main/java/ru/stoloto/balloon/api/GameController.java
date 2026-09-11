@@ -118,6 +118,23 @@ public class GameController {
         return Map.of("items", items);
     }
 
+    /**
+     * Пополнение баланса демо-игрока до стартового значения из конфига.
+     *
+     * ТЗ: «демо-пользователь с ненулевым балансом ИЛИ сценарий его пополнения» —
+     * эксперт должен пройти все сценарии сам. Проиграв баланс до суммы меньше
+     * самой дешёвой ставки, он без этого упирается в тупик, из которого выводит
+     * только перезапуск сервера.
+     */
+    @PostMapping("/demo/topup")
+    public Map<String, Object> topUp() {
+        int credited = persistence.topUpToStart();
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("credited", credited);
+        body.put("balance", persistence.player().getBalance());
+        return body;
+    }
+
     /** Старт раунда: списывает ставку, отдаёт id раунда и provably-fair хеш. */
     @PostMapping("/round/start")
     public Map<String, Object> startRound(@RequestBody StartRequest request) {

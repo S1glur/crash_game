@@ -31,6 +31,7 @@ export function BetScreen({
   const rewards = useGame((s) => s.rewards)
   const autoCashout = useGame((s) => s.autoCashout)
   const setAutoCashout = useGame((s) => s.setAutoCashout)
+  const topUp = useGame((s) => s.topUp)
 
   const [toast, setToast] = useState<string | null>(null)
 
@@ -38,6 +39,18 @@ export function BetScreen({
   const selected = options.find((option) => option.id === selectedBetId) ?? null
   const canStart = selected !== null && selected.cost <= balance
   const thresholds = config?.themes?.[theme]?.level_thresholds ?? []
+
+  /*
+    Пополнение демо-баланса. Без него проигранный в ноль баланс запирает игру:
+    ТЗ требует, чтобы эксперт прошёл все сценарии сам, а единственным выходом
+    оставался бы перезапуск сервера. Кнопка появляется, как только баланс упал
+    ниже стартового, а когда не хватает даже на самую дешёвую ставку —
+    показываем полноценную плашку, мимо которой не пройти.
+  */
+  const startingBalance = config?.demo_user?.starting_balance ?? 0
+  const canTopUp = balance < startingBalance
+  const cheapest = options.length ? Math.min(...options.map((option) => option.cost)) : 0
+  const stuck = options.length > 0 && balance < cheapest
 
   const lootProbabilities = useMemo(() => {
     const themeConfig = config?.themes?.[theme]
@@ -92,6 +105,18 @@ export function BetScreen({
                 {fmtInt(balance)}
               </span>
             </span>
+            {canTopUp && (
+              <button
+                className="chip"
+                onClick={() => void topUp()}
+                title={`Пополнить демо-баланс до ${fmtInt(startingBalance)}`}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+                <span className="narrow-hide">Пополнить</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -156,6 +181,32 @@ export function BetScreen({
                 фрагмент задаёт цену и силу бустера
               </span>
             </div>
+
+            {stuck && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 16,
+                  padding: '16px 18px',
+                  background: 'rgba(140,47,58,.24)',
+                  border: '1px solid rgba(232,117,127,.5)',
+                  borderRadius: 3,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 220px' }}>
+                  <span style={{ fontSize: 14, fontWeight: 800 }}>Бонусы закончились</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.7, lineHeight: 1.5 }}>
+                    На балансе {fmtInt(balance)}, самая дешёвая ставка — {fmtInt(cheapest)}.
+                    Демо-счёт можно пополнить до {fmtInt(startingBalance)}.
+                  </span>
+                </div>
+                <button className="btn btn-primary" style={{ height: 50, padding: '0 26px' }} onClick={() => void topUp()}>
+                  Пополнить счёт
+                </button>
+              </div>
+            )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
               {options.map((option) => {

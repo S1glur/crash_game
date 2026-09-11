@@ -169,6 +169,12 @@ public class GameConfigService {
             notNegative("demo_user.starting_balance", config.demoUser().startingBalance());
         }
 
+        if (config.upsell() != null) {
+            notNegative("upsell.min_win_amount", config.upsell().minWinAmount());
+            // Ноль означал бы попап, закрывающийся в тот же кадр, в котором открылся.
+            range("upsell.popup_timeout_sec", config.upsell().popupTimeoutSec(), 1, 120);
+        }
+
         if (config.boostTiers() != null) {
             config.boostTiers().forEach((key, value) -> {
                 if (value == null || value < 1.0 || value > 100.0) {

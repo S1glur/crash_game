@@ -32,6 +32,9 @@ export const api = {
 
   rules: () => request<{ content: string }>('/api/rules'),
 
+  /** Пополнение демо-баланса до стартового — чтобы проигрыш не запирал игру. */
+  topUp: () => request<{ credited: number; balance: number }>('/api/demo/topup', { method: 'POST' }),
+
   history: (limit = 20) => request<{ items: HistoryItem[] }>(`/api/history?limit=${limit}`),
 
   startRound: (
