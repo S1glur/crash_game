@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import { useGame } from '../store/gameStore'
-import type { Theme } from '../api/types'
 
 /**
  * Административная панель. ТЗ называет её «предпочтительным расширенным
@@ -151,22 +150,42 @@ export function AdminModal({ onClose }: { onClose: () => void }) {
           ))}
         </Section>
 
-        {(Object.keys(draft.themes) as Theme[]).map((theme) => (
-          <Section
-            key={theme}
-            title={`Тема ${theme === 'green' ? '«Изумруд»' : '«Бордо»'} — ставки`}
-          >
-            {draft.themes[theme].bet_options.map((option: any, index: number) => (
-              <Field
-                key={option.id}
-                label={`${option.id} (бустер ×${option.boost_tier})`}
-                value={option.cost}
-                step={10}
-                onChange={(v) => patch((n) => (n.themes[theme].bet_options[index].cost = v))}
-              />
-            ))}
-          </Section>
-        ))}
+        <Section title="Границы ставки">
+          <Field
+            label="Минимальная ставка"
+            value={draft.stake?.min ?? 0}
+            step={5}
+            onChange={(v) => patch((n) => (n.stake.min = v))}
+          />
+          <Field
+            label="Максимальная ставка"
+            value={draft.stake?.max ?? 0}
+            step={50}
+            onChange={(v) => patch((n) => (n.stake.max = v))}
+          />
+          <Field
+            label="Шаг ставки"
+            value={draft.stake?.step ?? 0}
+            step={5}
+            onChange={(v) => patch((n) => (n.stake.step = v))}
+          />
+        </Section>
+
+        <Section title="Цена бустеров (доля от ставки)">
+          {(draft.boost_options ?? []).map((option: any, index: number) => (
+            <Field
+              key={option.id}
+              label={`${option.id} (×${option.boost_tier})`}
+              hint={
+                `доплата = ставка × ${option.price_factor}. ` +
+                `Честная цена — ${option.boost_tier - 1}: при ней бустер перестаёт быть выгодным`
+              }
+              value={option.price_factor}
+              step={0.1}
+              onChange={(v) => patch((n) => (n.boost_options[index].price_factor = v))}
+            />
+          ))}
+        </Section>
 
         <Section title="Апсейл «Закрепи успех»">
           <Field

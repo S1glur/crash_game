@@ -57,17 +57,29 @@ public class GameController {
     public Map<String, Object> state() {
         GameConfig config = configService.get();
 
-        Map<String, Object> betOptions = new LinkedHashMap<>();
         Map<String, Object> levelsCount = new LinkedHashMap<>();
-        config.themes().forEach((name, theme) -> {
-            betOptions.put(name, theme.betOptions().stream()
-                    .map(option -> Map.<String, Object>of(
-                            "id", option.id(),
-                            "cost", option.cost(),
-                            "boostMultiplier", config.boostValue(option.boostTier())))
-                    .toList());
-            levelsCount.put(name, theme.levelsCount());
-        });
+        config.themes().forEach((name, theme) -> levelsCount.put(name, theme.levelsCount()));
+
+        /*
+          Варианты бустера отдаём вместе с priceFactor, а не с готовой ценой:
+          цена зависит от суммы ставки, которую игрок ещё не выбрал. Клиент
+          считает её для подсказки, но окончательное слово за сервером — он
+          пересчитывает доплату при старте раунда.
+        */
+        List<Map<String, Object>> boostOptions = config.boostOptions().stream()
+                .map(option -> Map.<String, Object>of(
+                        "id", option.id(),
+                        "boostTier", option.boostTier(),
+                        "priceFactor", option.priceFactor(),
+                        "boostMultiplier", config.boostValue(option.boostTier())))
+                .toList();
+
+        GameConfig.Stake limits = config.stake();
+        Map<String, Object> stake = new LinkedHashMap<>();
+        stake.put("min", limits.min());
+        stake.put("max", limits.max());
+        stake.put("step", limits.step());
+        stake.put("presets", limits.presets());
 
         ActiveRound active = roundService.currentActive();
 
@@ -75,7 +87,8 @@ public class GameController {
         body.put("balance", persistence.player().getBalance());
         body.put("theme", config.themes().containsKey("green") ? "green" : config.themes().keySet().iterator().next());
         body.put("activeRound", active == null ? null : activeRoundView(active));
-        body.put("betOptions", betOptions);
+        body.put("stake", stake);
+        body.put("boostOptions", boostOptions);
         body.put("levelsCount", levelsCount);
         return body;
     }
@@ -107,7 +120,8 @@ public class GameController {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("roundId", entity.getRoundId());
             item.put("theme", entity.getTheme());
-            item.put("bet", entity.getBet());
+            item.put("stake", entity.getStake());
+            item.put("totalPaid", entity.getTotalPaid());
             item.put("result", entity.getOutcome());
             item.put("multiplier", entity.getOutcome().equals("cashout")
                     ? entity.getCashedOutAt() : entity.getCrashAt());
@@ -139,14 +153,16 @@ public class GameController {
     @PostMapping("/round/start")
     public Map<String, Object> startRound(@RequestBody StartRequest request) {
         ActiveRound round = roundService.start(
-                request.theme(), request.betOptionId(), request.seed(), request.speedFactor(),
-                request.autoCashoutAt());
+                request.theme(), request.stake(), request.boostOptionId(), request.seed(),
+                request.speedFactor(), request.autoCashoutAt());
 
         GameConfig config = configService.get();
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("roundId", round.roundId());
         body.put("theme", round.theme());
-        body.put("bet", round.bet());
+        body.put("stake", round.stake());
+        body.put("boostFee", round.boostFee());
+        body.put("totalPaid", round.totalPaid());
         body.put("boostMultiplier", config.boostValue(round.boostTier()));
         body.put("levelsCount", round.thresholds().size());
         body.put("levelThresholds", round.thresholds());
@@ -181,7 +197,9 @@ public class GameController {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("roundId", entity.getRoundId());
         body.put("theme", entity.getTheme());
-        body.put("bet", entity.getBet());
+        body.put("stake", entity.getStake());
+        body.put("boostFee", entity.getBoostFee());
+        body.put("totalPaid", entity.getTotalPaid());
         body.put("outcome", entity.getOutcome());
         body.put("cashedOutAt", entity.getCashedOutAt());
         body.put("crashAt", entity.getCrashAt());
@@ -224,7 +242,9 @@ public class GameController {
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("roundId", round.roundId());
         view.put("theme", round.theme());
-        view.put("bet", round.bet());
+        view.put("stake", round.stake());
+        view.put("boostFee", round.boostFee());
+        view.put("totalPaid", round.totalPaid());
         view.put("boostMultiplier", configService.get().boostValue(round.boostTier()));
         view.put("levelsCount", round.thresholds().size());
         view.put("levelThresholds", round.thresholds());
@@ -244,7 +264,9 @@ public class GameController {
     /** Тело POST /api/round/start. Поля seed и speedFactor действуют только в dev-режиме. */
     public record StartRequest(
             @NotBlank String theme,
-            @NotBlank String betOptionId,
+            /** Сумма ставки в баллах — свободная, в границах config.stake. */
+            int stake,
+            @NotBlank String boostOptionId,
             Long seed,
             Double speedFactor,
             /** Коэффициент, на котором сервер сам зафиксирует выигрыш. null — выключено. */

@@ -16,7 +16,12 @@ public class RoundEntity {
     private String roundId;
 
     private String theme;
-    private int bet;
+
+    /** Ставка — только от неё считается выигрыш. */
+    private int stake;
+
+    /** Доплата за бустер: сгорает всегда, в выплате не участвует. */
+    private int boostFee;
 
     /** "cashout" или "crash". */
     private String outcome;
@@ -49,13 +54,14 @@ public class RoundEntity {
         // для JPA
     }
 
-    public RoundEntity(String roundId, String theme, int bet, String outcome, Double cashedOutAt,
-                       double crashAt, int winAmount, int points, int boostTier, boolean boostApplied,
-                       String rewardId, String rewardType, String resultHash, long serverSeed,
-                       double crashPointRaw, int boostLevelIndex) {
+    public RoundEntity(String roundId, String theme, int stake, int boostFee, String outcome,
+                       Double cashedOutAt, double crashAt, int winAmount, int points, int boostTier,
+                       boolean boostApplied, String rewardId, String rewardType, String resultHash,
+                       long serverSeed, double crashPointRaw, int boostLevelIndex) {
         this.roundId = roundId;
         this.theme = theme;
-        this.bet = bet;
+        this.stake = stake;
+        this.boostFee = boostFee;
         this.outcome = outcome;
         this.cashedOutAt = cashedOutAt;
         this.crashAt = crashAt;
@@ -74,7 +80,9 @@ public class RoundEntity {
 
     public String getRoundId() { return roundId; }
     public String getTheme() { return theme; }
-    public int getBet() { return bet; }
+    public int getStake() { return stake; }
+    public int getBoostFee() { return boostFee; }
+    public int getTotalPaid() { return stake + boostFee; }
     public String getOutcome() { return outcome; }
     public Double getCashedOutAt() { return cashedOutAt; }
     public double getCrashAt() { return crashAt; }

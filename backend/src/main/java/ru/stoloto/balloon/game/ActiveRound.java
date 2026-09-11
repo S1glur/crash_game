@@ -11,12 +11,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Ключевое разделение (см. docs/math-model.md):
  *  - base multiplier   — прогресс полёта, по нему считаются уровни и момент краха;
  *  - effective         — base * boostFactor, то, что видит игрок и по чему считается выигрыш.
+ *
+ * Так же строго разделены ставка и доплата за бустер: выигрыш считается только
+ * от ставки, а доплата сгорает всегда. Если бы выплата шла от всей суммы,
+ * бустер стал бы бесплатным — он множил бы и то, что за него заплачено
+ * (разбор в docs/math-model.md, раздел «Почему бустер не может быть честным»).
  */
 public class ActiveRound {
 
     private final String roundId;
     private final String theme;
-    private final int bet;
+    private final int stake;
+    private final int boostFee;
     private final int boostTier;
     private final double speedFactor;
     private final RoundOutcome outcome;
@@ -37,11 +43,12 @@ public class ActiveRound {
     private volatile int winAmount = 0;
     private final AtomicBoolean finished = new AtomicBoolean(false);
 
-    public ActiveRound(String roundId, String theme, int bet, int boostTier, double speedFactor,
-                       RoundOutcome outcome, GameConfig config) {
+    public ActiveRound(String roundId, String theme, int stake, int boostFee, int boostTier,
+                       double speedFactor, RoundOutcome outcome, GameConfig config) {
         this.roundId = roundId;
         this.theme = theme;
-        this.bet = bet;
+        this.stake = stake;
+        this.boostFee = boostFee;
         this.boostTier = boostTier;
         this.speedFactor = speedFactor;
         this.outcome = outcome;
@@ -134,7 +141,8 @@ public class ActiveRound {
         }
         double multiplier = effectiveMultiplier();
         cashedOutAt = multiplier;
-        winAmount = (int) Math.floor(bet * multiplier);
+        // От ставки, а не от всей уплаченной суммы — см. комментарий к классу.
+        winAmount = (int) Math.floor(stake * multiplier);
         points += pointsConfig.pointsCashoutBonus();
         return true;
     }
@@ -150,7 +158,10 @@ public class ActiveRound {
 
     public String roundId() { return roundId; }
     public String theme() { return theme; }
-    public int bet() { return bet; }
+    public int stake() { return stake; }
+    public int boostFee() { return boostFee; }
+    /** Сколько списано с баланса всего: ставка плюс доплата за бустер. */
+    public int totalPaid() { return stake + boostFee; }
     public int boostTier() { return boostTier; }
     public RoundOutcome outcome() { return outcome; }
     public int levelsCrossed() { return levelsCrossed; }

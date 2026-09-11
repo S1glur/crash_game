@@ -169,6 +169,46 @@ public class GameConfigService {
             notNegative("demo_user.starting_balance", config.demoUser().startingBalance());
         }
 
+        GameConfig.Stake stake = config.stake();
+        if (stake == null) {
+            throw new ConfigValidationException("Отсутствует блок stake");
+        }
+        if (stake.min() <= 0) {
+            throw new ConfigValidationException("stake.min: минимальная ставка должна быть больше нуля");
+        }
+        if (stake.max() < stake.min()) {
+            throw new ConfigValidationException("stake.max не может быть меньше stake.min");
+        }
+        if (stake.step() <= 0) {
+            throw new ConfigValidationException("stake.step: шаг ставки должен быть больше нуля");
+        }
+
+        if (config.boostOptions() == null || config.boostOptions().isEmpty()) {
+            throw new ConfigValidationException("Не задано ни одного варианта бустера");
+        }
+        for (GameConfig.BoostOption option : config.boostOptions()) {
+            if (option.boostTier() < 1) {
+                throw new ConfigValidationException(
+                        option.id() + ": boost_tier должен быть не меньше 1");
+            }
+            if (option.priceFactor() < 0) {
+                throw new ConfigValidationException(
+                        option.id() + ": price_factor не может быть отрицательным");
+            }
+            /*
+              Верхняя граница — честная цена бустера. При price_factor = b-1
+              доплата ровно равна выигрышу, который бустер приносит, и покупать
+              его становится бессмысленно: платить S*b за множитель b — то же
+              самое, что просто поставить S*b. Разбор в docs/math-model.md.
+            */
+            double fair = config.boostValue(option.boostTier()) - 1.0;
+            if (option.priceFactor() > fair) {
+                throw new ConfigValidationException(
+                        "%s: price_factor %.2f выше честной цены %.2f — такой бустер невыгоден никогда"
+                                .formatted(option.id(), option.priceFactor(), fair));
+            }
+        }
+
         if (config.upsell() != null) {
             notNegative("upsell.min_win_amount", config.upsell().minWinAmount());
             // Ноль означал бы попап, закрывающийся в тот же кадр, в котором открылся.
@@ -206,16 +246,6 @@ public class GameConfigService {
             if (thresholds.get(i) <= thresholds.get(i - 1)) {
                 throw new ConfigValidationException(name + ": пороги уровней должны строго расти, "
                         + "нарушено на уровне " + (i + 1));
-            }
-        }
-
-        if (theme.betOptions() == null || theme.betOptions().isEmpty()) {
-            throw new ConfigValidationException(name + ": не заданы варианты ставок");
-        }
-        for (GameConfig.BetOption option : theme.betOptions()) {
-            if (option.cost() <= 0) {
-                throw new ConfigValidationException(
-                        name + "/" + option.id() + ": стоимость ставки должна быть больше нуля");
             }
         }
 

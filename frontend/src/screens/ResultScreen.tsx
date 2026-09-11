@@ -11,10 +11,11 @@ export function ResultScreen() {
   const config = useGame((s) => s.config)
   const rewards = useGame((s) => s.rewards)
   const balance = useGame((s) => s.balance)
-  const betOptions = useGame((s) => s.betOptions)
+  const stake = useGame((s) => s.stake)
+  const boostOptions = useGame((s) => s.boostOptions)
   const upsellShown = useGame((s) => s.upsellShown)
   const markUpsellShown = useGame((s) => s.markUpsellShown)
-  const startWithBet = useGame((s) => s.startWithBet)
+  const startWithBoost = useGame((s) => s.startWithBoost)
   const playAgain = useGame((s) => s.playAgain)
   const repeatBet = useGame((s) => s.repeatBet)
   const goToTheme = useGame((s) => s.goToTheme)
@@ -25,19 +26,22 @@ export function ResultScreen() {
 
   /**
    * Что предложить в апсейле: самый сильный бустер, который игрок может
-   * оплатить уже зачисленным выигрышем. Если ни один не по карману —
-   * предложения нет, дразнить недоступной покупкой незачем.
+   * оплатить уже зачисленным выигрышем при своей же ставке. Если ни один не
+   * по карману — предложения нет, дразнить недоступной покупкой незачем.
    */
   const upsellOption = useMemo(() => {
     if (!result || !config) return null
     if (result.outcome !== 'cashout') return null
     if (result.winAmount < config.upsell.min_win_amount) return null
     return (
-      [...(betOptions[result.theme] ?? [])]
-        .filter((option) => option.boostMultiplier > 1 && option.cost <= balance)
+      [...boostOptions]
+        .filter(
+          (option) =>
+            option.boostMultiplier > 1 && stake + Math.ceil(stake * option.priceFactor) <= balance,
+        )
         .sort((a, b) => b.boostMultiplier - a.boostMultiplier)[0] ?? null
     )
-  }, [result, config, betOptions, balance])
+  }, [result, config, boostOptions, stake, balance])
 
   // Показываем не сразу: сначала дать увидеть свой выигрыш, потом предлагать.
   useEffect(() => {
@@ -90,7 +94,7 @@ export function ResultScreen() {
   if (!result) return null
 
   const won = result.outcome === 'cashout'
-  const potential = Math.floor(result.bet * result.crashAt)
+  const potential = Math.floor(result.stake * result.crashAt)
 
   return (
     <div className="screen">
@@ -184,19 +188,22 @@ export function ResultScreen() {
                   </span>
                   {won && (
                     <span className="num" style={{ fontSize: 24, color: 'var(--emerald-lt)' }}>
-                      +{fmtInt(result.winAmount - result.bet)}
+                      +{fmtInt(result.winAmount - result.totalPaid)}
                     </span>
                   )}
                 </div>
                 {!won && (
                   <span style={{ fontSize: 13, fontWeight: 600, opacity: 0.6 }}>
-                    Ставка {fmtInt(result.bet)} бонусов не вернулась
+                    {result.boostFee > 0
+                      ? `Ставка ${fmtInt(result.stake)} и доплата ${fmtInt(result.boostFee)} за бустер не вернулись`
+                      : `Ставка ${fmtInt(result.stake)} бонусов не вернулась`}
                   </span>
                 )}
               </div>
 
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <Tile value={fmtInt(result.bet)} caption="ставка" />
+                <Tile value={fmtInt(result.stake)} caption="ставка" />
+                {result.boostFee > 0 && <Tile value={fmtInt(result.boostFee)} caption="за бустер" />}
                 {won && <Tile value={fmtMult(result.cashedOutAt!)} caption="забрали на" />}
                 <Tile value={fmtMult(result.crashAt)} caption="крах" danger />
               </div>
@@ -272,7 +279,7 @@ export function ResultScreen() {
                   <>
                     Забрали бы на {fmtMult(Math.max(1.1, result.crashAt * 0.7))} — получили бы{' '}
                     <b className="num" style={{ fontSize: 18 }}>
-                      {fmtInt(Math.floor(result.bet * Math.max(1.1, result.crashAt * 0.7)))}
+                      {fmtInt(Math.floor(result.stake * Math.max(1.1, result.crashAt * 0.7)))}
                     </b>
                   </>
                 )}
@@ -330,7 +337,7 @@ export function ResultScreen() {
               Играть снова
             </button>
             <button className="btn btn-ghost" style={{ height: 60, padding: '0 30px' }} onClick={() => void repeatBet()}>
-              Повторить · {fmtInt(result.bet)}
+              Повторить · {fmtInt(result.totalPaid)}
             </button>
             <div className="grow" />
             <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.5 }}>
@@ -359,11 +366,12 @@ export function ResultScreen() {
         <UpsellModal
           winAmount={result.winAmount}
           option={upsellOption}
+          stake={stake}
           balance={balance}
           timeoutSec={config?.upsell.popup_timeout_sec ?? 10}
           onAccept={() => {
             setUpsellOpen(false)
-            void startWithBet(upsellOption.id)
+            void startWithBoost(upsellOption.id)
           }}
           onClose={() => setUpsellOpen(false)}
         />

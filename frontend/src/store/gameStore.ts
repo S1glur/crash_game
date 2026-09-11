@@ -3,10 +3,11 @@ import { api } from '../api/client'
 import { subscribeToRound } from '../api/roundSocket'
 import { sound } from '../utils/sound'
 import type {
-  BetOption,
+  BoostOption,
   GameConfig,
   HistoryItem,
   RoundResult,
+  StakeLimits,
   Theme,
 } from '../api/types'
 
@@ -14,7 +15,10 @@ export type Phase = 'loading' | 'theme' | 'bet' | 'flight' | 'result'
 
 interface FlightState {
   roundId: string
-  bet: number
+  /** Ставка — от неё считается выигрыш. */
+  stake: number
+  /** Доплата за бустер: сгорает всегда, в выплате не участвует. */
+  boostFee: number
   boostMultiplier: number
   thresholds: number[]
   resultHash: string
@@ -43,11 +47,14 @@ interface GameStore {
   error: string | null
   balance: number
   theme: Theme
-  betOptions: Record<Theme, BetOption[]>
+  stakeLimits: StakeLimits
+  boostOptions: BoostOption[]
   levelsCount: Record<Theme, number>
   config: GameConfig | null
   history: HistoryItem[]
-  selectedBetId: string | null
+  /** Сумма ставки, выбранная игроком; переживает раунды. */
+  stake: number
+  selectedBoostId: string
   /** Выбранный игроком порог автовывода, переживает раунды. */
   autoCashout: number | null
   flight: FlightState | null
@@ -64,7 +71,8 @@ interface GameStore {
   refreshHistory: () => Promise<void>
   reloadConfig: () => Promise<void>
   setTheme: (theme: Theme) => void
-  selectBet: (betOptionId: string | null) => void
+  setStake: (value: number) => void
+  selectBoost: (boostOptionId: string) => void
   setAutoCashout: (value: number | null) => void
   goToBet: () => void
   goToTheme: () => void
@@ -72,8 +80,12 @@ interface GameStore {
   cashout: () => Promise<void>
   playAgain: () => void
   repeatBet: () => Promise<void>
-  startWithBet: (betOptionId: string) => Promise<void>
+  startWithBoost: (boostOptionId: string) => Promise<void>
   topUp: () => Promise<void>
+  /** Доплата за выбранный бустер при текущей ставке — та же формула, что на сервере. */
+  boostFee: (boostOptionId?: string) => number
+  /** Сколько всего спишется с баланса: ставка плюс доплата. */
+  totalCost: (boostOptionId?: string) => number
   dismissError: () => void
   markOnboardingSeen: () => void
   markUpsellShown: () => void
@@ -86,11 +98,13 @@ export const useGame = create<GameStore>((set, get) => ({
   error: null,
   balance: 0,
   theme: 'green',
-  betOptions: { green: [], red: [] },
+  stakeLimits: { min: 10, max: 400, step: 5, presets: [] },
+  boostOptions: [],
   levelsCount: { green: 9, red: 12 },
   config: null,
   history: [],
-  selectedBetId: null,
+  stake: 50,
+  selectedBoostId: 'no-boost',
   autoCashout: null,
   flight: null,
   result: null,
@@ -109,10 +123,14 @@ export const useGame = create<GameStore>((set, get) => ({
       set({
         balance: state.balance,
         theme: state.theme,
-        betOptions: state.betOptions,
+        stakeLimits: state.stake,
+        boostOptions: state.boostOptions,
         levelsCount: state.levelsCount,
         config,
         history: history.items,
+        // Стартовая ставка — первый пресет из конфига, иначе минимальная.
+        stake: state.stake.presets[0] ?? state.stake.min,
+        selectedBoostId: state.boostOptions[0]?.id ?? 'no-boost',
         phase: 'theme',
       })
     } catch (e) {
@@ -132,11 +150,32 @@ export const useGame = create<GameStore>((set, get) => ({
 
   setTheme(theme) {
     sound.select()
-    set({ theme, selectedBetId: null })
+    set({ theme })
   },
 
-  selectBet(betOptionId) {
-    set({ selectedBetId: betOptionId })
+  setStake(value) {
+    const { min, max, step } = get().stakeLimits
+    // Округляем к сетке шага: сервер отвергнет ставку не по шагу, и лучше
+    // поправить её здесь, чем показать игроку ошибку валидации.
+    const snapped = min + Math.round((value - min) / step) * step
+    set({ stake: Math.min(max, Math.max(min, snapped)) })
+  },
+
+  selectBoost(boostOptionId) {
+    sound.select()
+    set({ selectedBoostId: boostOptionId })
+  },
+
+  boostFee(boostOptionId) {
+    const { boostOptions, selectedBoostId, stake } = get()
+    const id = boostOptionId ?? selectedBoostId
+    const option = boostOptions.find((candidate) => candidate.id === id)
+    // Вверх, как на сервере: иначе подсказка на копейку разойдётся со списанием.
+    return option ? Math.ceil(stake * option.priceFactor) : 0
+  },
+
+  totalCost(boostOptionId) {
+    return get().stake + get().boostFee(boostOptionId)
   },
 
   setAutoCashout(value) {
@@ -152,10 +191,11 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   async startRound() {
-    const { theme, selectedBetId, autoCashout } = get()
-    if (!selectedBetId) return
+    const { theme, stake, selectedBoostId, autoCashout } = get()
     try {
-      const started = await api.startRound(theme, selectedBetId, { autoCashoutAt: autoCashout })
+      const started = await api.startRound(theme, stake, selectedBoostId, {
+        autoCashoutAt: autoCashout,
+      })
       sound.launch()
       set({
         balance: started.balanceAfter,
@@ -163,7 +203,8 @@ export const useGame = create<GameStore>((set, get) => ({
         result: null,
         flight: {
           roundId: started.roundId,
-          bet: started.bet,
+          stake: started.stake,
+          boostFee: started.boostFee,
           boostMultiplier: started.boostMultiplier,
           thresholds: started.levelThresholds,
           resultHash: started.resultHash,
@@ -290,11 +331,12 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   /**
-   * Взлёт конкретным вариантом ставки, минуя экран выбора — так апсейл
-   * «Закрепи успех» уводит игрока прямо в полёт с предложенным фрагментом.
+   * Взлёт конкретным бустером, минуя экран выбора — так апсейл «Закрепи успех»
+   * уводит игрока прямо в полёт с предложенным фрагментом. Ставка остаётся той,
+   * что игрок выбрал сам.
    */
-  async startWithBet(betOptionId) {
-    set({ selectedBetId: betOptionId, result: null, flight: null })
+  async startWithBoost(boostOptionId) {
+    set({ selectedBoostId: boostOptionId, result: null, flight: null })
     await get().startRound()
   },
 

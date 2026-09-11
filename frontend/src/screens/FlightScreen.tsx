@@ -91,8 +91,8 @@ export function FlightScreen() {
   if (!flight) return null
 
   const canCashout = flight.levelsCrossed >= 1 && flight.cashedOutAt === null && !flight.finished
-  const currentWin = Math.floor(flight.bet * multiplier)
-  const boostedWin = Math.floor(flight.bet * multiplier * flight.boostMultiplier)
+  const currentWin = Math.floor(flight.stake * multiplier)
+  const boostedWin = Math.floor(flight.stake * multiplier * flight.boostMultiplier)
   const cashedOut = flight.cashedOutAt !== null
 
   // Стиль коэффициента растёт вместе с ним — адаптация правила ТЗ
@@ -269,7 +269,8 @@ export function FlightScreen() {
           </div>
 
           <RoundJournal
-            bet={flight.bet}
+            stake={flight.stake}
+            boostFee={flight.boostFee}
             points={flight.points}
             boostMultiplier={flight.boostMultiplier}
             boostFired={flight.boostApplied}
@@ -355,14 +356,16 @@ export function FlightScreen() {
 }
 
 function RoundJournal({
-  bet,
+  stake,
+  boostFee,
   points,
   boostMultiplier,
   boostFired,
   boostLevel,
   resultHash,
 }: {
-  bet: number
+  stake: number
+  boostFee: number
   points: number
   boostMultiplier: number
   boostFired: boolean
@@ -374,9 +377,18 @@ function RoundJournal({
       <span className="label">Текущий раунд</span>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-        <Stat value={fmtInt(bet)} caption="ставка" />
+        <Stat value={fmtInt(stake)} caption="ставка" />
         <Stat value={String(points)} caption="очки за раунд" accent />
       </div>
+
+      {/* Доплата за бустер не участвует в выплате — игрок должен это видеть
+          во время полёта, а не узнавать из экрана результата. */}
+      {boostFee > 0 && (
+        <span style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.55, lineHeight: 1.45 }}>
+          За бустер уплачено {fmtInt(boostFee)} сверх ставки. Выигрыш считается со ставки,
+          доплата окупается только после срабатывания бустера.
+        </span>
+      )}
 
       <div className="hr" />
 

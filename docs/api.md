@@ -44,24 +44,37 @@ Response 200:
   "balance": 1000,
   "theme": "green",
   "activeRound": null,
-  "betOptions": {
-    "green": [
-      { "id": "no-boost", "cost": 50, "boostMultiplier": 1 },
-      { "id": "boost-x2", "cost": 150, "boostMultiplier": 2 },
-      { "id": "boost-x3", "cost": 300, "boostMultiplier": 3 },
-      { "id": "boost-x4", "cost": 600, "boostMultiplier": 4 }
-    ],
-    "red": [ "...то же для красной темы, свои цены/множители из конфига..." ]
-  },
+  "stake": { "min": 10, "max": 400, "step": 5, "presets": [25, 50, 100, 200] },
+  "boostOptions": [
+    { "id": "no-boost", "boostTier": 1, "priceFactor": 0.0, "boostMultiplier": 1 },
+    { "id": "boost-x2", "boostTier": 2, "priceFactor": 0.5, "boostMultiplier": 2 },
+    { "id": "boost-x3", "boostTier": 3, "priceFactor": 1.0, "boostMultiplier": 3 },
+    { "id": "boost-x4", "boostTier": 4, "priceFactor": 1.5, "boostMultiplier": 4 }
+  ],
   "levelsCount": { "green": 9, "red": 12 }
 }
 ```
+
+**Ставка и цена бустера.** Сумму ставки игрок задаёт сам в границах `stake`.
+Бустер — отдельная покупка, и цена у него не фиксированная, а доля от ставки:
+
+```
+доплата = ceil(ставка × priceFactor)
+списывается = ставка + доплата
+выигрыш     = ставка × коэффициент        // доплата в выплате не участвует
+```
+
+Клиент считает доплату для подсказки, но источник правды — сервер: он
+пересчитывает её при старте раунда. Обоснование цен — в `docs/math-model.md`,
+раздел 4.
+
 Если `activeRound` не null — фронт восстанавливает незавершённый раунд (перезагрузка
 страницы) и подписывается на его WebSocket-топик. Набор полей внутри `activeRound`
-тот же, что отдаёт `POST /api/round/start` (`roundId`, `theme`, `bet`,
-`boostMultiplier`, `levelsCount`, `levelThresholds`, `boostLevelIndex`,
-`resultHash`), плюс текущее состояние полёта: `multiplier`, `levelsCrossed`,
-`boostApplied`, `points`, `elapsedMs`, `cashedOutAt`, `winAmount`.
+тот же, что отдаёт `POST /api/round/start` (`roundId`, `theme`, `stake`,
+`boostFee`, `totalPaid`, `boostMultiplier`, `levelsCount`, `levelThresholds`,
+`boostLevelIndex`, `resultHash`), плюс текущее состояние полёта: `multiplier`,
+`levelsCrossed`, `boostApplied`, `points`, `elapsedMs`, `autoCashoutAt`,
+`cashedOutAt`, `winAmount`.
 
 ### `GET /api/rules`
 Текст правил игры (см. `docs/rules.md` — источник контента). Отдаёт готовый HTML/markdown
@@ -82,7 +95,8 @@ Response 200:
     {
       "roundId": "r-102",
       "theme": "green",
-      "bet": 150,
+      "stake": 150,
+      "totalPaid": 225,
       "result": "cashout",
       "multiplier": 1.85,
       "points": 278,
@@ -91,7 +105,8 @@ Response 200:
     {
       "roundId": "r-101",
       "theme": "red",
-      "bet": 300,
+      "stake": 300,
+      "totalPaid": 300,
       "result": "crash",
       "multiplier": 0.72,
       "points": 0,
@@ -118,13 +133,17 @@ Response 200:
 отдельную плашку, когда не хватает даже на самую дешёвую ставку.
 
 ### `POST /api/round/start`
-Списывает ставку, сервер уже вычислил (но не раскрыл) точку краха и позицию
-бустера, создаёт раунд, возвращает его id и provably-fair хеш.
+Списывает ставку с доплатой за бустер, сервер уже вычислил (но не раскрыл) точку
+краха и позицию бустера, создаёт раунд, возвращает его id и provably-fair хеш.
 
 Request:
 ```json
-{ "theme": "green", "betOptionId": "boost-x2" }
+{ "theme": "green", "stake": 150, "boostOptionId": "boost-x2" }
 ```
+
+`stake` — сумма ставки в баллах, свободная в границах `stake.min … stake.max` и
+кратная `stake.step`. Нарушение любого из трёх условий → `VALIDATION_ERROR` с
+текстом, который можно показать игроку как есть.
 
 Опциональное поле `autoCashoutAt` (number) — коэффициент, на котором сервер сам
 зафиксирует выигрыш. Допустимо от первого порога уровня до `max_multiplier`;
@@ -138,15 +157,23 @@ Response 200:
 {
   "roundId": "r-103",
   "theme": "green",
-  "bet": 150,
+  "stake": 150,
+  "boostFee": 75,
+  "totalPaid": 225,
   "boostMultiplier": 2,
   "levelsCount": 9,
   "levelThresholds": [1.10, 1.25, 1.45, 1.70, 2.00, 2.50, 3.20, 4.50, 7.00],
   "boostLevelIndex": 5,
+  "autoCashoutAt": null,
   "resultHash": "3f9c2a...e1",
-  "balanceAfter": 850
+  "balanceAfter": 775
 }
 ```
+
+`stake` / `boostFee` / `totalPaid` — ставка, доплата за бустер и общая сумма
+списания. Выигрыш считается **только от `stake`**: доплата сгорает в любом
+случае, и именно это делает бустер осмысленной покупкой, а не бесплатной
+добавкой (разбор в `docs/math-model.md`, раздел 4).
 
 `boostLevelIndex` — уровень, на котором ждёт бустер (`-1`, если ставка без
 бустера). Раскрывается сразу, до полёта: ТЗ описывает механику «игрок может
@@ -158,7 +185,9 @@ Response 200:
 раскрывается только на `GET /api/round/{roundId}` после завершения раунда — для
 проверки честности.
 
-Ошибки: `INSUFFICIENT_BALANCE`, `INVALID_BET_OPTION`.
+Ошибки: `INSUFFICIENT_BALANCE` (баланса не хватает на `totalPaid`),
+`INVALID_BET_OPTION` (нет такого варианта бустера), `VALIDATION_ERROR`
+(ставка вне границ или не по шагу).
 
 Сразу после успешного ответа фронт подписывается на WebSocket-топик
 `/topic/round/{roundId}` и получает поток тиков коэффициента (см. ниже).
@@ -191,7 +220,9 @@ Response 200:
 {
   "roundId": "r-103",
   "theme": "green",
-  "bet": 150,
+  "stake": 150,
+  "boostFee": 75,
+  "totalPaid": 225,
   "outcome": "cashout",
   "cashedOutAt": 2.35,
   "crashAt": 3.10,
@@ -344,7 +375,8 @@ sha256("3.560465|-1|42") === "7ecdc7ce..."
 ```json
 {
   "theme": "green",
-  "betOptionId": "boost-x2",
+  "stake": 150,
+  "boostOptionId": "boost-x2",
   "seed": 42,
   "speedFactor": 5
 }
@@ -352,7 +384,7 @@ sha256("3.560465|-1|42") === "7ecdc7ce..."
 
 - `seed` (int, опционально) — фиксирует `server_seed`, а значит и точку краха, и
   позицию бустера. Один и тот же `seed` + одна и та же тема + один и тот же
-  `betOptionId` = полностью идентичный раунд.
+  `boostOptionId` = полностью идентичный раунд.
 - `speedFactor` (number, опционально, по умолчанию `1`) — множитель скорости
   роста коэффициента. `5` означает, что раунд проходит в 5 раз быстрее: удобно,
   когда проверяешь экран результата в двадцатый раз подряд. На саму математику

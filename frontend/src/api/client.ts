@@ -39,12 +39,13 @@ export const api = {
 
   startRound: (
     theme: Theme,
-    betOptionId: string,
+    stake: number,
+    boostOptionId: string,
     options?: { autoCashoutAt?: number | null; seed?: number; speedFactor?: number },
   ) =>
     request<StartedRound>('/api/round/start', {
       method: 'POST',
-      body: JSON.stringify({ theme, betOptionId, ...options }),
+      body: JSON.stringify({ theme, stake, boostOptionId, ...options }),
     }),
 
   cashout: (roundId: string) =>

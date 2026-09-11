@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import type { StakeLimits } from '../api/types'
 import { Balloon } from '../components/Balloon'
 import { HistoryChart } from '../components/HistoryChart'
 import { LootChart } from '../components/LootChart'
@@ -20,10 +21,13 @@ export function BetScreen({
   const theme = useGame((s) => s.theme)
   const setTheme = useGame((s) => s.setTheme)
   const balance = useGame((s) => s.balance)
-  const betOptions = useGame((s) => s.betOptions)
+  const stake = useGame((s) => s.stake)
+  const setStake = useGame((s) => s.setStake)
+  const stakeLimits = useGame((s) => s.stakeLimits)
+  const boostOptions = useGame((s) => s.boostOptions)
   const levelsCount = useGame((s) => s.levelsCount)
-  const selectedBetId = useGame((s) => s.selectedBetId)
-  const selectBet = useGame((s) => s.selectBet)
+  const selectedBoostId = useGame((s) => s.selectedBoostId)
+  const selectBoost = useGame((s) => s.selectBoost)
   const startRound = useGame((s) => s.startRound)
   const goToTheme = useGame((s) => s.goToTheme)
   const history = useGame((s) => s.history)
@@ -35,10 +39,21 @@ export function BetScreen({
 
   const [toast, setToast] = useState<string | null>(null)
 
-  const options = betOptions[theme] ?? []
-  const selected = options.find((option) => option.id === selectedBetId) ?? null
-  const canStart = selected !== null && selected.cost <= balance
+  const selected = boostOptions.find((option) => option.id === selectedBoostId) ?? null
+  const boostFee = selected ? Math.ceil(stake * selected.priceFactor) : 0
+  const totalCost = stake + boostFee
+  const canStart = selected !== null && totalCost <= balance
   const thresholds = config?.themes?.[theme]?.level_thresholds ?? []
+
+  /*
+    Потолок ставки зависит от выбранного бустера: за ×4 доплата полторы ставки,
+    и на балансе 1000 максимум — 400, а не 1000. Считаем здесь, чтобы ползунок
+    не заводил игрока в заведомо отклонённый сервером запрос.
+  */
+  const maxAffordable = Math.max(
+    stakeLimits.min,
+    Math.min(stakeLimits.max, Math.floor(balance / (1 + (selected?.priceFactor ?? 0)))),
+  )
 
   /*
     Пополнение демо-баланса. Без него проигранный в ноль баланс запирает игру:
@@ -49,8 +64,8 @@ export function BetScreen({
   */
   const startingBalance = config?.demo_user?.starting_balance ?? 0
   const canTopUp = balance < startingBalance
-  const cheapest = options.length ? Math.min(...options.map((option) => option.cost)) : 0
-  const stuck = options.length > 0 && balance < cheapest
+  const cheapest = stakeLimits.min
+  const stuck = balance < cheapest
 
   const lootProbabilities = useMemo(() => {
     const themeConfig = config?.themes?.[theme]
@@ -175,10 +190,10 @@ export function BetScreen({
           <div className="bet-col">
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
               <span className="num" style={{ fontSize: 28 }}>
-                Выберите ставку
+                Ставка и бустер
               </span>
               <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.55 }}>
-                фрагмент задаёт цену и силу бустера
+                сумма любая, бустер докупается отдельно
               </span>
             </div>
 
@@ -208,17 +223,25 @@ export function BetScreen({
               </div>
             )}
 
+            <StakeInput
+              value={stake}
+              onChange={setStake}
+              limits={stakeLimits}
+              maxAffordable={maxAffordable}
+            />
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-              {options.map((option) => {
-                const affordable = option.cost <= balance
-                const isSelected = option.id === selectedBetId
+              {boostOptions.map((option) => {
+                const fee = Math.ceil(stake * option.priceFactor)
+                const affordable = stake + fee <= balance
+                const isSelected = option.id === selectedBoostId
                 return (
                   <button
                     key={option.id}
                     className="bet-row"
                     data-selected={isSelected}
                     onClick={() =>
-                      affordable ? selectBet(option.id) : showToast('Не хватает бонусов')
+                      affordable ? selectBoost(option.id) : showToast('Не хватает бонусов')
                     }
                     aria-pressed={isSelected}
                     style={{ opacity: affordable ? 1 : 0.45 }}
@@ -231,9 +254,9 @@ export function BetScreen({
                       <span style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.55 }}>
                         {affordable
                           ? option.boostMultiplier > 1
-                            ? `умножит коэффициент на ${option.boostMultiplier}`
+                            ? `окупится, если дотянуть до бустера`
                             : 'только рост коэффициента'
-                          : `не хватает ${fmtInt(option.cost - balance)} бонусов`}
+                          : `не хватает ${fmtInt(stake + fee - balance)} бонусов`}
                       </span>
                     </div>
                     <div className="grow" />
@@ -255,7 +278,7 @@ export function BetScreen({
                     )}
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
                       <span className="num" style={{ fontSize: 24 }}>
-                        {fmtInt(option.cost)}
+                        {fee > 0 ? `+${fmtInt(fee)}` : '—'}
                       </span>
                       <span
                         style={{
@@ -264,7 +287,8 @@ export function BetScreen({
                           color: isSelected ? 'var(--amber)' : 'rgba(242,234,219,.45)',
                         }}
                       >
-                        при ×2,00 → {fmtInt(option.cost * REFERENCE_MULTIPLIER * option.boostMultiplier)}
+                        при ×{REFERENCE_MULTIPLIER.toFixed(2).replace('.', ',')} →{' '}
+                        {fmtInt(stake * REFERENCE_MULTIPLIER * option.boostMultiplier)}
                       </span>
                     </div>
                   </button>
@@ -278,7 +302,7 @@ export function BetScreen({
               value={autoCashout}
               onChange={setAutoCashout}
               minimum={thresholds[0] ?? 1.1}
-              bet={selected?.cost ?? 0}
+              bet={stake}
               boostMultiplier={selected?.boostMultiplier ?? 1}
             />
 
@@ -301,10 +325,31 @@ export function BetScreen({
                     letterSpacing: 0,
                   }}
                 >
-                  −{fmtInt(selected.cost)}
+                  −{fmtInt(totalCost)}
                 </span>
               )}
             </button>
+
+            {/* Из чего складывается списание — иначе доплата выглядит скрытой. */}
+            {selected && boostFee > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  opacity: 0.6,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <span>
+                  ставка {fmtInt(stake)} + бустер ×{selected.boostMultiplier} за {fmtInt(boostFee)}
+                </span>
+                <div className="grow hr" />
+                <span>выигрыш считается только со ставки</span>
+              </div>
+            )}
 
             <div
               className="panel"
@@ -401,6 +446,101 @@ function ThemeToggle({
  * Порог хранится и проверяется на сервере: иначе он зависел бы от лагов вкладки
  * и не сработал бы на свёрнутой странице.
  */
+/**
+ * Ввод суммы ставки: пресеты, ползунок и точное поле.
+ *
+ * Ползунок ограничен не только конфигом, но и балансом с учётом доплаты за
+ * выбранный бустер — иначе игрок выставлял бы сумму, которую сервер всё равно
+ * отклонит, и узнавал бы об этом только по ошибке после нажатия «Начать».
+ */
+function StakeInput({
+  value,
+  onChange,
+  limits,
+  maxAffordable,
+}: {
+  value: number
+  onChange: (value: number) => void
+  limits: StakeLimits
+  maxAffordable: number
+}) {
+  const [draft, setDraft] = useState<string | null>(null)
+
+  const commit = (raw: string) => {
+    const parsed = Number(raw.replace(/[^\d]/g, ''))
+    if (Number.isFinite(parsed) && parsed > 0) onChange(Math.min(parsed, maxAffordable))
+    setDraft(null)
+  }
+
+  return (
+    <div className="panel" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <span className="label">Сумма ставки</span>
+        <div className="grow" />
+        <span style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.5 }}>
+          от {fmtInt(limits.min)} до {fmtInt(maxAffordable)}
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <input
+          className="num"
+          inputMode="numeric"
+          value={draft ?? String(value)}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={(event) => commit(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
+          }}
+          aria-label="Сумма ставки в баллах"
+          style={{
+            width: 128,
+            padding: '8px 12px',
+            background: 'rgba(16,13,32,.6)',
+            border: '1px solid rgba(242,166,73,.45)',
+            borderRadius: 3,
+            color: 'var(--cream)',
+            fontSize: 26,
+            textAlign: 'center',
+          }}
+        />
+        <input
+          type="range"
+          min={limits.min}
+          max={maxAffordable}
+          step={limits.step}
+          value={Math.min(value, maxAffordable)}
+          onChange={(event) => onChange(Number(event.target.value))}
+          aria-label="Ползунок суммы ставки"
+          style={{ flex: '1 1 160px', accentColor: 'var(--amber)' }}
+        />
+      </div>
+
+      <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+        {limits.presets
+          .filter((preset) => preset <= maxAffordable)
+          .map((preset) => (
+            <button
+              key={preset}
+              className="chip"
+              onClick={() => onChange(preset)}
+              aria-pressed={value === preset}
+              style={{
+                borderColor: value === preset ? 'var(--amber)' : undefined,
+                color: value === preset ? 'var(--amber)' : undefined,
+              }}
+            >
+              {fmtInt(preset)}
+            </button>
+          ))}
+        <button className="chip" onClick={() => onChange(maxAffordable)}>
+          Максимум
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function AutoCashout({
   value,
   onChange,

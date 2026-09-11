@@ -80,7 +80,8 @@ public class RoundPersistence {
         RoundEntity entity = new RoundEntity(
                 round.roundId(),
                 round.theme(),
-                round.bet(),
+                round.stake(),
+                round.boostFee(),
                 outcomeType,
                 round.cashedOutAt() == null ? null : RoundService.round2(round.cashedOutAt()),
                 crashAt,

@@ -29,7 +29,8 @@ Content-Type: application/json
 
 {
   "theme": "green",
-  "betOptionId": "boost-x2"
+  "stake": 150,
+  "boostOptionId": "boost-x2"
 }
 
 ### Старт раунда — dev: фиксированный seed + ускорение в 5 раз
@@ -39,7 +40,8 @@ Content-Type: application/json
 
 {
   "theme": "green",
-  "betOptionId": "boost-x3",
+  "stake": 100,
+  "boostOptionId": "boost-x3",
   "seed": 42,
   "speedFactor": 5
 }
@@ -50,7 +52,8 @@ Content-Type: application/json
 
 {
   "theme": "red",
-  "betOptionId": "boost-x4",
+  "stake": 200,
+  "boostOptionId": "boost-x4",
   "seed": 3,
   "speedFactor": 3
 }
@@ -67,7 +70,8 @@ Content-Type: application/json
 
 {
   "theme": "green",
-  "betOptionId": "nope"
+  "stake": 50,
+  "boostOptionId": "nope"
 }
 
 ### Ошибка: неизвестная тема -> VALIDATION_ERROR
@@ -76,7 +80,8 @@ Content-Type: application/json
 
 {
   "theme": "blue",
-  "betOptionId": "no-boost"
+  "stake": 50,
+  "boostOptionId": "no-boost"
 }
 
 ### Статистика мат. модели — обоснование расчётами, а не одним раундом
@@ -87,6 +92,7 @@ GET {{host}}/api/dev/simulate?rounds=20000&theme=red
 
 ### Админка: сохранить конфигурацию (полный JSON)
 # Проще всего: выполнить GET /api/config выше, скопировать ответ сюда и поправить.
+# Ниже — текущая конфигурация целиком, как она лежит в config/game.json.
 PUT {{host}}/api/config
 Content-Type: application/json
 
@@ -95,49 +101,85 @@ Content-Type: application/json
   "game_name": "Воздушный Шар",
   "game_type": "crash",
   "is_active": true,
-  "demo_user": { "id": "guest", "starting_balance": 1000 },
+
+  "demo_user": {
+    "id": "guest",
+    "starting_balance": 1000
+  },
+
+  "stake": {
+    "min": 10,
+    "max": 400,
+    "step": 5,
+    "presets": [25, 50, 100, 200]
+  },
+
+  "boost_options": [
+    { "id": "no-boost", "boost_tier": 1, "price_factor": 0.0 },
+    { "id": "boost-x2", "boost_tier": 2, "price_factor": 0.5 },
+    { "id": "boost-x3", "boost_tier": 3, "price_factor": 1.0 },
+    { "id": "boost-x4", "boost_tier": 4, "price_factor": 1.5 }
+  ],
+
   "themes": {
     "green": {
       "levels_count": 9,
       "level_thresholds": [1.10, 1.25, 1.45, 1.70, 2.00, 2.50, 3.20, 4.50, 7.00],
-      "bet_options": [
-        { "id": "no-boost", "cost": 50, "boost_tier": 1 },
-        { "id": "boost-x2", "cost": 150, "boost_tier": 2 },
-        { "id": "boost-x3", "cost": 300, "boost_tier": 3 },
-        { "id": "boost-x4", "cost": 600, "boost_tier": 4 }
-      ],
       "loot_probabilities": {
-        "line_1_loot_prob": 0.05, "line_2_loot_prob": 0.08, "line_3_loot_prob": 0.12,
-        "line_4_loot_prob": 0.15, "line_5_loot_prob": 0.15, "line_6_loot_prob": 0.15,
-        "line_7_loot_prob": 0.12, "line_8_loot_prob": 0.10, "line_9_loot_prob": 0.08
+        "line_1_loot_prob": 0.05,
+        "line_2_loot_prob": 0.08,
+        "line_3_loot_prob": 0.12,
+        "line_4_loot_prob": 0.15,
+        "line_5_loot_prob": 0.15,
+        "line_6_loot_prob": 0.15,
+        "line_7_loot_prob": 0.12,
+        "line_8_loot_prob": 0.10,
+        "line_9_loot_prob": 0.08
       }
     },
     "red": {
       "levels_count": 12,
       "level_thresholds": [1.08, 1.18, 1.30, 1.45, 1.65, 1.90, 2.25, 2.70, 3.30, 4.20, 5.60, 8.00],
-      "bet_options": [
-        { "id": "no-boost", "cost": 100, "boost_tier": 1 },
-        { "id": "boost-x2", "cost": 250, "boost_tier": 2 },
-        { "id": "boost-x3", "cost": 500, "boost_tier": 3 },
-        { "id": "boost-x4", "cost": 1000, "boost_tier": 4 }
-      ],
       "loot_probabilities": {
-        "line_1_loot_prob": 0.03, "line_2_loot_prob": 0.05, "line_3_loot_prob": 0.07,
-        "line_4_loot_prob": 0.09, "line_5_loot_prob": 0.11, "line_6_loot_prob": 0.12,
-        "line_7_loot_prob": 0.12, "line_8_loot_prob": 0.11, "line_9_loot_prob": 0.09,
-        "line_10_loot_prob": 0.08, "line_11_loot_prob": 0.07, "line_12_loot_prob": 0.06
+        "line_1_loot_prob": 0.03,
+        "line_2_loot_prob": 0.05,
+        "line_3_loot_prob": 0.07,
+        "line_4_loot_prob": 0.09,
+        "line_5_loot_prob": 0.11,
+        "line_6_loot_prob": 0.12,
+        "line_7_loot_prob": 0.12,
+        "line_8_loot_prob": 0.11,
+        "line_9_loot_prob": 0.09,
+        "line_10_loot_prob": 0.08,
+        "line_11_loot_prob": 0.07,
+        "line_12_loot_prob": 0.06
       }
     }
   },
+
   "crash_model": {
-    "alpha": 0.97, "max_multiplier": 50.0, "min_crash_multiplier": 1.00,
-    "multiplier_growth_rate": 0.15, "fps": 10, "delta": 0.1
+    "alpha": 0.97,
+    "max_multiplier": 50.0,
+    "min_crash_multiplier": 1.00,
+    "multiplier_growth_rate": 0.06,
+    "growth_acceleration_base": 1.12,
+    "fps": 10,
+    "delta": 0.1
   },
+
   "boost_tiers": {
-    "multiplier_tier_1_value": 1.0, "multiplier_tier_2_value": 2.0,
-    "multiplier_tier_3_value": 3.0, "multiplier_tier_4_value": 4.0
+    "multiplier_tier_1_value": 1.0,
+    "multiplier_tier_2_value": 2.0,
+    "multiplier_tier_3_value": 3.0,
+    "multiplier_tier_4_value": 4.0
   },
-  "points": { "points_per_line": 10, "points_cashout_bonus": 50, "points_boost_bonus": 100 },
+
+  "points": {
+    "points_per_line": 10,
+    "points_cashout_bonus": 50,
+    "points_boost_bonus": 100
+  },
+
   "rewards": {
     "pool": [
       { "id": "puzzle-piece-1", "type": "puzzle-piece", "weight": 40 },
@@ -145,24 +187,63 @@ Content-Type: application/json
       { "id": "bonus-token", "type": "token", "weight": 20 }
     ]
   },
-  "upsell": { "min_win_amount": 50, "popup_timeout_sec": 10 },
-  "ui": { "result_screen_auto_advance_sec": 10, "onboarding_hint_duration_sec": 4 },
-  "dev_mode": { "enabled": true }
+
+  "upsell": {
+    "min_win_amount": 50,
+    "popup_timeout_sec": 10
+  },
+
+  "ui": {
+    "result_screen_auto_advance_sec": 10,
+    "onboarding_hint_duration_sec": 4
+  },
+
+  "dev_mode": {
+    "enabled": true,
+    "_comment": "Разрешает поля seed и speedFactor в POST /api/round/start. Перед сдачей экспертам решить: оставить true (удобно демонстрировать бустер) или выключить. При false сервер игнорирует эти поля."
+  }
 }
 
-### Админка: проверка валидации — пороги уровней не возрастают
+### Админка: валидация — пороги уровней не возрастают
 PUT {{host}}/api/config
 Content-Type: application/json
 
 {
+  "stake": { "min": 10, "max": 400, "step": 5, "presets": [25, 50] },
+  "boost_options": [{ "id": "no-boost", "boost_tier": 1, "price_factor": 0.0 }],
   "crash_model": { "alpha": 0.97, "max_multiplier": 50, "min_crash_multiplier": 1,
-                   "multiplier_growth_rate": 0.15, "fps": 10, "delta": 0.1 },
+                   "multiplier_growth_rate": 0.06, "growth_acceleration_base": 1.12,
+                   "fps": 10, "delta": 0.1 },
   "points": { "points_per_line": 10, "points_cashout_bonus": 50, "points_boost_bonus": 100 },
   "themes": {
     "green": {
       "levels_count": 3,
       "level_thresholds": [2.0, 1.5, 3.0],
-      "bet_options": [{ "id": "no-boost", "cost": 50, "boost_tier": 1 }],
+      "loot_probabilities": { "line_1_loot_prob": 1.0 }
+    }
+  }
+}
+
+### Админка: валидация — бустер дороже честной цены (×2 при price_factor 1.5)
+# Такой бустер невыгоден при любой стратегии: см. docs/math-model.md, раздел 4.
+PUT {{host}}/api/config
+Content-Type: application/json
+
+{
+  "stake": { "min": 10, "max": 400, "step": 5, "presets": [25, 50] },
+  "boost_options": [
+    { "id": "no-boost", "boost_tier": 1, "price_factor": 0.0 },
+    { "id": "boost-x2", "boost_tier": 2, "price_factor": 1.5 }
+  ],
+  "boost_tiers": { "multiplier_tier_1_value": 1.0, "multiplier_tier_2_value": 2.0 },
+  "crash_model": { "alpha": 0.97, "max_multiplier": 50, "min_crash_multiplier": 1,
+                   "multiplier_growth_rate": 0.06, "growth_acceleration_base": 1.12,
+                   "fps": 10, "delta": 0.1 },
+  "points": { "points_per_line": 10, "points_cashout_bonus": 50, "points_boost_bonus": 100 },
+  "themes": {
+    "green": {
+      "levels_count": 1,
+      "level_thresholds": [1.1],
       "loot_probabilities": { "line_1_loot_prob": 1.0 }
     }
   }

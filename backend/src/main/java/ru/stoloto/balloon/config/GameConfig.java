@@ -16,6 +16,8 @@ public record GameConfig(
         String gameType,
         boolean isActive,
         DemoUser demoUser,
+        Stake stake,
+        List<BoostOption> boostOptions,
         Map<String, Theme> themes,
         CrashModel crashModel,
         Map<String, Double> boostTiers,
@@ -29,16 +31,24 @@ public record GameConfig(
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record DemoUser(String id, int startingBalance) {}
 
+    /** Границы свободной ставки: игрок сам выбирает сумму внутри них. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Stake(int min, int max, int step, List<Integer> presets) {}
+
+    /**
+     * Вариант бустера. Цена не фиксированная, а доля от ставки: только так
+     * доплата остаётся соразмерной выигрышу при любой сумме ставки.
+     * price_factor = 0 — фрагмент без бустера, он бесплатный.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record BoostOption(String id, int boostTier, double priceFactor) {}
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Theme(
             int levelsCount,
             List<Double> levelThresholds,
-            List<BetOption> betOptions,
             Map<String, Double> lootProbabilities
     ) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record BetOption(String id, int cost, int boostTier) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record CrashModel(
@@ -81,5 +91,27 @@ public record GameConfig(
     /** Значение множителя бустера для выбранного тира (1 = без бустера). */
     public double boostValue(int tier) {
         return boostTiers.getOrDefault("multiplier_tier_" + tier + "_value", 1.0);
+    }
+
+    /** Вариант бустера по id; null, если такого варианта в конфиге нет. */
+    public BoostOption boostOption(String id) {
+        if (boostOptions == null) {
+            return null;
+        }
+        return boostOptions.stream()
+                .filter(option -> option.id().equals(id))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * Доплата за бустер при данной ставке, в баллах.
+     *
+     * Округляем вверх: при округлении вниз мелкие ставки получали бы бустер
+     * бесплатно (10 * 0.5 = 5, но 1 * 0.5 = 0), и модель ломалась бы именно
+     * там, где её проще всего эксплуатировать.
+     */
+    public int boostFee(BoostOption option, int stakeAmount) {
+        return (int) Math.ceil(stakeAmount * option.priceFactor());
     }
 }

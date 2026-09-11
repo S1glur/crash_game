@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { PuzzleIcon } from './PuzzleIcon'
-import type { BetOption } from '../api/types'
+import type { BoostOption } from '../api/types'
 import { fmtInt } from '../utils/format'
 
 /**
@@ -18,14 +18,16 @@ import { fmtInt } from '../utils/format'
 export function UpsellModal({
   winAmount,
   option,
+  stake,
   balance,
   timeoutSec,
   onAccept,
   onClose,
 }: {
   winAmount: number
-  /** Что предлагаем: вариант ставки с бустером, который игрок может себе позволить. */
-  option: BetOption
+  /** Что предлагаем: бустер, доплату за который игрок может себе позволить. */
+  option: BoostOption
+  stake: number
   balance: number
   timeoutSec: number
   onAccept: () => void
@@ -63,7 +65,8 @@ export function UpsellModal({
   }, [])
 
   const boost = option.boostMultiplier
-  const rest = balance - option.cost
+  const fee = Math.ceil(stake * option.priceFactor)
+  const rest = balance - stake - fee
 
   return (
     <div className="modal-backdrop" style={{ zIndex: 40 }} onClick={onClose}>
@@ -107,8 +110,8 @@ export function UpsellModal({
               {fmtInt(winAmount)}
             </span>
             <span style={{ fontSize: 13, fontWeight: 600, opacity: 0.7, lineHeight: 1.5 }}>
-              Бонусы уже на балансе. Вложите часть в фрагмент с бустером — он умножит
-              коэффициент прямо в полёте.
+              Бонусы уже на балансе. Докупите бустер к той же ставке — если дотянете до
+              его уровня, коэффициент умножится на {boost}.
             </span>
           </div>
 
@@ -135,10 +138,10 @@ export function UpsellModal({
             <div className="grow" />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
               <span className="num" style={{ fontSize: 21 }}>
-                {fmtInt(option.cost)}
+                {fmtInt(stake)} + {fmtInt(fee)}
               </span>
               <span style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.65 }}>
-                останется {fmtInt(rest)}
+                ставка и бустер · останется {fmtInt(rest)}
               </span>
             </div>
           </div>

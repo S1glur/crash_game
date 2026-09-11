@@ -76,7 +76,10 @@ export function HistoryChart({ items }: { items: HistoryItem[] }) {
             return (
               <div
                 key={item.roundId}
-                title={`${fmtMult(item.multiplier)} · ${cashedOut ? 'забрал' : 'крах'} · ставка ${item.bet}`}
+                title={
+                  `${fmtMult(item.multiplier)} · ${cashedOut ? 'забрал' : 'крах'} · ставка ${item.stake}` +
+                  (item.totalPaid > item.stake ? ` (+${item.totalPaid - item.stake} за бустер)` : '')
+                }
                 style={{
                   flex: '1 1 0',
                   minWidth: 0,

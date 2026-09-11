@@ -32,7 +32,8 @@
       <option value="red">red (12 уровней)</option>
     </select>
   </label>
-  <label>Ставка
+  <label>Ставка <input id="stake" size="5" value="50"></label>
+  <label>Бустер
     <select id="bet">
       <option value="no-boost">no-boost</option>
       <option value="boost-x2" selected>boost-x2</option>
@@ -110,7 +111,8 @@
       await connect();
       const body = {
         theme: document.getElementById('theme').value,
-        betOptionId: document.getElementById('bet').value
+        stake: Number(document.getElementById('stake').value),
+        boostOptionId: document.getElementById('bet').value
       };
       const seed = document.getElementById('seed').value.trim();
       if (seed) body.seed = Number(seed);
@@ -129,7 +131,8 @@
         return;
       }
       roundId = data.roundId;
-      log(`раунд ${roundId}: ставка ${data.bet}, бустер ×${data.boostMultiplier}, баланс ${data.balanceAfter}`);
+      log(`раунд ${roundId}: ставка ${data.stake} + доплата ${data.boostFee} = ${data.totalPaid}, `
+        + `бустер ×${data.boostMultiplier}, баланс ${data.balanceAfter}`);
       log(`resultHash=${data.resultHash}`);
       log(`пороги уровней: ${data.levelThresholds.join(', ')}`);
       subscribe(roundId);

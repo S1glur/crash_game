@@ -78,13 +78,13 @@ public class RoundService {
     }
 
     /**
-     * Старт раунда: списывает ставку и предрассчитывает исход.
+     * Старт раунда: списывает ставку с доплатой за бустер и предрассчитывает исход.
      * Клиент получает только hash исхода — сами crashPoint и позиция бустера
      * остаются на сервере до завершения полёта.
      */
     @Transactional
-    public ActiveRound start(String theme, String betOptionId, Long seed, Double speedFactor,
-                             Double autoCashoutAt) {
+    public ActiveRound start(String theme, int stake, String boostOptionId, Long seed,
+                             Double speedFactor, Double autoCashoutAt) {
         GameConfig config = configService.get();
 
         GameConfig.Theme themeConfig;
@@ -94,14 +94,29 @@ public class RoundService {
             throw new ApiException("VALIDATION_ERROR", "Неизвестная тема: " + theme);
         }
 
-        GameConfig.BetOption option = themeConfig.betOptions().stream()
-                .filter(candidate -> candidate.id().equals(betOptionId))
-                .findFirst()
-                .orElseThrow(() -> new ApiException("INVALID_BET_OPTION",
-                        "Неизвестный вариант ставки: " + betOptionId));
+        GameConfig.BoostOption option = config.boostOption(boostOptionId);
+        if (option == null) {
+            throw new ApiException("INVALID_BET_OPTION",
+                    "Неизвестный вариант бустера: " + boostOptionId);
+        }
+
+        // Границы ставки проверяем на сервере: клиент может прислать что угодно,
+        // а ставка в 0 баллов или в миллион ломает и экономику, и вёрстку.
+        GameConfig.Stake limits = config.stake();
+        if (stake < limits.min() || stake > limits.max()) {
+            throw new ApiException("VALIDATION_ERROR",
+                    "Ставка возможна от %d до %d баллов".formatted(limits.min(), limits.max()));
+        }
+        if (limits.step() > 0 && (stake - limits.min()) % limits.step() != 0) {
+            throw new ApiException("VALIDATION_ERROR",
+                    "Ставка задаётся с шагом %d баллов".formatted(limits.step()));
+        }
+
+        int boostFee = config.boostFee(option, stake);
+        int totalPaid = stake + boostFee;
 
         PlayerEntity player = persistence.player();
-        if (player.getBalance() < option.cost()) {
+        if (player.getBalance() < totalPaid) {
             throw new ApiException("INSUFFICIENT_BALANCE", "Не хватает бонусов");
         }
 
@@ -121,18 +136,18 @@ public class RoundService {
         Long effectiveSeed = devMode ? seed : null;
         double effectiveSpeed = devMode && speedFactor != null ? speedFactor : 1.0;
 
-        player.withdraw(option.cost());
+        player.withdraw(totalPaid);
         playerRepository.save(player);
 
         RoundOutcome outcome = RoundOutcome.generate(config, theme, option.boostTier(), effectiveSeed);
         String roundId = "r-" + roundCounter.incrementAndGet();
-        ActiveRound round = new ActiveRound(roundId, theme, option.cost(), option.boostTier(),
+        ActiveRound round = new ActiveRound(roundId, theme, stake, boostFee, option.boostTier(),
                 effectiveSpeed, outcome, config);
         round.setAutoCashoutAt(autoCashoutAt);
         activeRounds.put(roundId, round);
 
-        log.debug("Round {} started: theme={} bet={} boostTier={} crashPoint={} boostLevel={} seed={}",
-                roundId, theme, option.cost(), option.boostTier(),
+        log.debug("Round {} started: theme={} stake={} fee={} boostTier={} crashPoint={} boostLevel={} seed={}",
+                roundId, theme, stake, boostFee, option.boostTier(),
                 outcome.crashPoint(), outcome.boostLevelIndex(), outcome.serverSeed());
 
         return round;

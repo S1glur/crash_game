@@ -8,7 +8,7 @@ import { leaderboard, playerPlace } from '../utils/leaderboard'
 export function ThemeScreen() {
   const balance = useGame((s) => s.balance)
   const config = useGame((s) => s.config)
-  const betOptions = useGame((s) => s.betOptions)
+  const stakeLimits = useGame((s) => s.stakeLimits)
   const levelsCount = useGame((s) => s.levelsCount)
   const setTheme = useGame((s) => s.setTheme)
   const goToBet = useGame((s) => s.goToBet)
@@ -85,7 +85,7 @@ export function ThemeScreen() {
               title="Бордо"
               levels={levelsCount.red}
               thresholds={config?.themes.red.level_thresholds ?? []}
-              minBet={Math.min(...(betOptions.red ?? []).map((option) => option.cost), 0) || 0}
+              minBet={stakeLimits.min}
               risk={4}
               onSelect={choose}
             />
@@ -94,7 +94,7 @@ export function ThemeScreen() {
               title="Изумруд"
               levels={levelsCount.green}
               thresholds={config?.themes.green.level_thresholds ?? []}
-              minBet={Math.min(...(betOptions.green ?? []).map((option) => option.cost), 0) || 0}
+              minBet={stakeLimits.min}
               risk={2}
               onSelect={choose}
             />

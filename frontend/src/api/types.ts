@@ -7,16 +7,32 @@
 export type Theme = 'green' | 'red'
 export type Outcome = 'cashout' | 'crash'
 
-export interface BetOption {
+/**
+ * Вариант бустера. Цена не фиксированная, а доля от ставки (priceFactor):
+ * доплата = ставка × priceFactor. Считать её на клиенте можно только для
+ * подсказки — окончательную сумму пересчитывает сервер при старте раунда.
+ */
+export interface BoostOption {
   id: string
-  cost: number
+  boostTier: number
+  priceFactor: number
   boostMultiplier: number
+}
+
+/** Границы свободной ставки из конфига. */
+export interface StakeLimits {
+  min: number
+  max: number
+  step: number
+  presets: number[]
 }
 
 export interface ActiveRoundView {
   roundId: string
   theme: Theme
-  bet: number
+  stake: number
+  boostFee: number
+  totalPaid: number
   boostMultiplier: number
   levelsCount: number
   levelThresholds: number[]
@@ -36,14 +52,17 @@ export interface GameState {
   balance: number
   theme: Theme
   activeRound: ActiveRoundView | null
-  betOptions: Record<Theme, BetOption[]>
+  stake: StakeLimits
+  boostOptions: BoostOption[]
   levelsCount: Record<Theme, number>
 }
 
 export interface StartedRound {
   roundId: string
   theme: Theme
-  bet: number
+  stake: number
+  boostFee: number
+  totalPaid: number
   boostMultiplier: number
   levelsCount: number
   levelThresholds: number[]
@@ -65,7 +84,9 @@ export interface CashoutResult {
 export interface RoundResult {
   roundId: string
   theme: Theme
-  bet: number
+  stake: number
+  boostFee: number
+  totalPaid: number
   outcome: Outcome
   cashedOutAt: number | null
   crashAt: number
@@ -82,7 +103,8 @@ export interface RoundResult {
 export interface HistoryItem {
   roundId: string
   theme: Theme
-  bet: number
+  stake: number
+  totalPaid: number
   result: Outcome
   multiplier: number
   points: number
@@ -93,12 +115,13 @@ export interface HistoryItem {
 export interface GameConfig {
   /** Стартовый баланс: до него пополняет POST /api/demo/topup. */
   demo_user: { id: string; starting_balance: number }
+  stake: { min: number; max: number; step: number; presets: number[] }
+  boost_options: { id: string; boost_tier: number; price_factor: number }[]
   themes: Record<
     Theme,
     {
       levels_count: number
       level_thresholds: number[]
-      bet_options: { id: string; cost: number; boost_tier: number }[]
       loot_probabilities: Record<string, number>
     }
   >
