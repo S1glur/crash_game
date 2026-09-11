@@ -2,6 +2,9 @@ import { useMemo } from 'react'
 import type { HistoryItem } from '../api/types'
 import { fmtMult } from '../utils/format'
 
+/** Высота области столбцов в пикселях — от неё считаются и столбцы, и линия 2,00. */
+const BAR_AREA = 76
+
 /**
  * История завершённых раундов всех игроков прототипа (обязательный пункт ТЗ),
  * показанная гистограммой: сразу видно, как часто бывают ранние крахи.
@@ -21,16 +24,20 @@ export function HistoryChart({ items }: { items: HistoryItem[] }) {
   }, [items])
 
   const maxValue = stats ? Math.max(stats.max, 2.2) : 1
-  const bars = [...items].reverse()
+
+  // Показываем последние 14: при большем числе подписи под столбцами сливаются,
+  // а сводка снизу всё равно считается по всей выборке.
+  const bars = [...items].reverse().slice(-14)
 
   return (
     <div className="panel" style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 13 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
         <span className="label">Прошлые полёты</span>
         <div className="grow" />
+        <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.45 }}>● забрал · ✕ крах</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, opacity: 0.5 }}>
           <span style={{ width: 10, height: 3, background: 'var(--amber)' }} />
-          выше 2,00
+          отметка 2,00
         </span>
       </div>
 
@@ -39,20 +46,23 @@ export function HistoryChart({ items }: { items: HistoryItem[] }) {
           Ещё никто не летал — ваш раунд будет первым в истории.
         </span>
       ) : (
-        <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', gap: 4, height: 74 }}>
+        <div style={{ position: 'relative', display: 'flex', gap: 7, justifyContent: 'space-between' }}>
+          {/* Пунктир на отметке 2,00 — глазу нужна опора, иначе столбцы
+              сравниваются только друг с другом и абсолютная величина теряется. */}
           <div
             style={{
               position: 'absolute',
               left: 0,
               right: 0,
-              bottom: `${(2 / maxValue) * 100}%`,
+              top: (1 - 2 / maxValue) * BAR_AREA,
               height: 1,
               background:
                 'repeating-linear-gradient(90deg, rgba(242,166,73,.55) 0 6px, transparent 6px 12px)',
             }}
           />
+
           {bars.map((item) => {
-            const height = Math.max(6, (item.multiplier / maxValue) * 100)
+            const height = Math.max(4, (item.multiplier / maxValue) * BAR_AREA)
             const color =
               item.multiplier >= 3
                 ? 'var(--amber)'
@@ -61,12 +71,53 @@ export function HistoryChart({ items }: { items: HistoryItem[] }) {
                   : item.multiplier >= 1.3
                     ? '#4e4874'
                     : '#7a4553'
+            const cashedOut = item.result === 'cashout'
+
             return (
               <div
                 key={item.roundId}
-                title={`${fmtMult(item.multiplier)} · ${item.result === 'cashout' ? 'забрал' : 'крах'}`}
-                style={{ flexGrow: 1, height: `${height}%`, background: color, minWidth: 4 }}
-              />
+                title={`${fmtMult(item.multiplier)} · ${cashedOut ? 'забрал' : 'крах'} · ставка ${item.bet}`}
+                style={{
+                  flex: '1 1 0',
+                  minWidth: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 5,
+                }}
+              >
+                <div style={{ height: BAR_AREA, width: '100%', display: 'flex', alignItems: 'flex-end' }}>
+                  <div
+                    style={{
+                      width: '100%',
+                      maxWidth: 14,
+                      margin: '0 auto',
+                      height,
+                      background: color,
+                      transition: 'height .3s ease',
+                    }}
+                  />
+                </div>
+
+                <span
+                  className="num"
+                  style={{
+                    fontSize: 10.5,
+                    letterSpacing: 0,
+                    color,
+                    // Значения читаются только при полной непрозрачности —
+                    // ради них график и переделан.
+                    opacity: 0.95,
+                  }}
+                >
+                  {fmtMult(item.multiplier)}
+                </span>
+
+                {/* Исход раунда: точка — забрал, крестик — сгорело. */}
+                <span style={{ fontSize: 9, lineHeight: 1, opacity: 0.6, color }}>
+                  {cashedOut ? '●' : '✕'}
+                </span>
+              </div>
             )
           })}
         </div>

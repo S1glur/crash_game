@@ -99,11 +99,16 @@ export function BetScreen({
                     : 'linear-gradient(180deg, #1c2240 0%, #3a335c 38%, #7a4f66 66%, #e8a468 100%)',
               }}
             >
+              {/*
+                Шар поднят над плашками выбора темы: те прижаты к низу
+                (bottom: 14) и при bottom: 18 корзина шара их перекрывала.
+                Запас взят с учётом того, что шар ещё и покачивается на 15px.
+              */}
               <div
                 style={{
                   position: 'absolute',
                   left: '50%',
-                  bottom: 18,
+                  bottom: 104,
                   transform: 'translateX(-50%)',
                 }}
               >
