@@ -1,20 +1,24 @@
-import { useId, useMemo } from 'react'
+import { useId, useMemo, type ReactNode } from 'react'
 import type { Theme } from '../api/types'
 
 /**
  * Фоновая сцена: сумеречное небо, светило за дворцом и четыре силуэтных плана
  * с постройками.
  *
- * Два решения, на которых всё держится:
+ * Три решения, на которых всё держится:
  *
  * 1. Хребет и всё, что на нём стоит, живут в ОДНОЙ системе координат. Линия
  *    хребта задана массивом точек, а высота под постройкой берётся из этой же
- *    ломаной функцией yAt(). Поэтому здание физически не может ни парить, ни
- *    провалиться: его основание — это и есть поверхность горы в данной точке.
- *    Раньше координаты зданий подбирались вручную, и любое расхождение с
- *    линией читалось как «дворец висит в воздухе».
+ *    ломаной функцией yAt().
  *
- * 2. preserveAspectRatio="xMidYMax slice" — масштаб одинаков по обеим осям.
+ * 2. Под каждой постройкой в хребте вырезана ровная площадка — terrace(). Одного
+ *    совпадения высот мало: у здания плоское широкое основание, и на острие пика
+ *    оно опирается лишь центром, а по краям под ним видно небо — именно это и
+ *    читается как «дворец парит». Площадка шире основания, поэтому опора есть
+ *    по всей ширине. Ширина площадки берётся из тех же данных, что и позиция,
+ *    так что нарисовать постройку без земли под ней структурно невозможно.
+ *
+ * 3. preserveAspectRatio="xMidYMax slice" — масштаб одинаков по обеим осям.
  *    Прежний "none" тянул viewBox по ширине экрана: ломаной горы это незаметно,
  *    а дворец расплющивало тем сильнее, чем шире монитор.
  *
@@ -25,41 +29,14 @@ import type { Theme } from '../api/types'
 
 type Point = [x: number, y: number]
 
+/** Постройка на хребте: позиция, полуширина площадки под ней и сама фигура. */
+type Site = { x: number; half: number; el: ReactNode }
+
 /** Высота системы координат сцены. Низ viewBox — низ экрана. */
 const SCENE_H = 400
 
-/** Насколько плана уезжает вниз на полной высоте полёта, пиксели viewBox. */
+/** Насколько план уезжает вниз на полной высоте полёта, пиксели viewBox. */
 const DRIFT = 150
-
-/** Гряды: чем дальше, тем выше и мельче зубцы. */
-const RIDGE_FAR: Point[] = [
-  [0, 220], [58, 168], [108, 198], [166, 118], [210, 152], [256, 196],
-  [314, 130], [358, 170], [418, 102], [468, 148], [518, 190], [576, 138],
-  [632, 174], [688, 124], [744, 180], [798, 146], [858, 192], [904, 132],
-  [962, 178], [1018, 208], [1076, 148], [1130, 118], [1184, 166], [1238, 198],
-  [1296, 140], [1350, 178], [1398, 150], [1440, 194],
-]
-
-const RIDGE_MID: Point[] = [
-  [0, 282], [74, 236], [138, 268], [206, 204], [268, 246], [328, 282],
-  [396, 212], [450, 254], [510, 288], [564, 238], [626, 264], [688, 214],
-  [750, 252], [810, 290], [866, 234], [926, 264], [988, 210], [1048, 252],
-  [1110, 284], [1168, 236], [1230, 268], [1288, 220], [1350, 260], [1406, 232],
-  [1440, 270],
-]
-
-const RIDGE_NEAR: Point[] = [
-  [0, 338], [86, 298], [162, 334], [234, 284], [304, 322], [378, 346],
-  [450, 294], [518, 332], [590, 352], [658, 306], [728, 338], [798, 298],
-  [866, 340], [934, 358], [1002, 310], [1072, 342], [1138, 302], [1204, 340],
-  [1272, 358], [1342, 316], [1398, 342], [1440, 324],
-]
-
-const RIDGE_FRONT: Point[] = [
-  [0, 384], [118, 364], [238, 386], [358, 360], [478, 382], [598, 356],
-  [718, 380], [838, 358], [958, 384], [1078, 362], [1198, 382], [1318, 360],
-  [1440, 378],
-]
 
 /** Ломаная + заливка до низа кадра. */
 function ridgePath(points: Point[]): string {
@@ -80,8 +57,128 @@ function yAt(points: Point[], x: number): number {
   return points[points.length - 1][1]
 }
 
-/** Дворец стоит на вершине среднего хребта — вокруг него строится композиция. */
+/**
+ * Вырезает в хребте ровные площадки под постройки: участок [x-half, x+half]
+ * заменяется горизонталью на высоте склона в центре площадки. Заливка идёт до
+ * низа кадра, поэтому под площадкой всегда сплошная порода — зданию есть на чём
+ * стоять по всей ширине основания.
+ */
+function terrace(points: Point[], sites: Site[]): Point[] {
+  let out = points
+  for (const site of sites) {
+    const left = Math.max(0, site.x - site.half)
+    const right = Math.min(1440, site.x + site.half)
+    const y = yAt(out, site.x)
+    out = [
+      ...out.filter(([px]) => px < left),
+      [left, y] as Point,
+      [right, y] as Point,
+      ...out.filter(([px]) => px > right),
+    ]
+  }
+  return out
+}
+
+/*
+  Деревья: ставятся так же, как постройки, только площадка под ними
+  символическая — ствол узкий, ему хватает пары десятков пикселей.
+  Полуширина считается от масштаба, чтобы крупное дерево не оказалось на
+  площадке от мелкого.
+*/
+const tree = (x: number, scale: number): Site => ({ x, half: 10 * scale, el: <Tree scale={scale} /> })
+const cypress = (x: number, scale: number): Site => ({ x, half: 8 * scale, el: <Cypress scale={scale} /> })
+const palm = (x: number, scale: number): Site => ({ x, half: 9 * scale, el: <Palm scale={scale} /> })
+
+/** Дворец стоит на плато среднего хребта — вокруг него строится композиция. */
 const PALACE_X = 688
+
+/* --- дальний план: мелкие храмы, башни и редкая поросль --- */
+
+const RIDGE_FAR: Point[] = [
+  [0, 216], [52, 164], [104, 198], [166, 116], [212, 158], [256, 194],
+  [314, 130], [360, 166], [378, 152], [458, 150], [504, 186], [552, 142],
+  [604, 178], [658, 132], [708, 174], [762, 140], [814, 186], [868, 148],
+  [912, 120], [962, 174], [1016, 202], [1062, 150], [1088, 138], [1172, 136],
+  [1216, 172], [1262, 198], [1300, 130], [1350, 176], [1398, 150], [1440, 192],
+]
+
+const FAR_SITES: Site[] = [
+  { x: 166, half: 9, el: <Minaret height={44} /> },
+  { x: 418, half: 36, el: <Temple scale={0.5} /> },
+  { x: 468, half: 9, el: <Minaret height={34} /> },
+  { x: 904, half: 9, el: <Minaret height={40} /> },
+  { x: 1130, half: 38, el: <Ziggurat scale={0.46} /> },
+  { x: 1296, half: 9, el: <Minaret height={36} /> },
+  tree(76, 0.5), tree(236, 0.45), cypress(590, 0.5), tree(744, 0.45),
+  tree(986, 0.5), cypress(1234, 0.45), tree(1418, 0.5),
+]
+
+/* --- средний план: дворец на плато, храмы, зиккурат --- */
+
+const RIDGE_MID: Point[] = [
+  [0, 286], [58, 242], [112, 274], [148, 254], [264, 252], [296, 284],
+  [348, 234], [396, 220], [440, 262], [492, 236], [536, 262], [560, 246],
+  [582, 226], [794, 226], [816, 250], [860, 272], [900, 240], [920, 228],
+  [1056, 230], [1092, 268], [1144, 238], [1194, 274], [1236, 246], [1340, 244],
+  [1384, 276], [1440, 252],
+]
+
+const MID_SITES: Site[] = [
+  { x: 206, half: 52, el: <Temple scale={0.72} /> },
+  { x: 396, half: 9, el: <Minaret height={54} /> },
+  { x: PALACE_X, half: 106, el: <Palace scale={0.75} /> },
+  { x: 988, half: 64, el: <Ziggurat scale={0.8} /> },
+  { x: 1288, half: 48, el: <Temple scale={0.66} /> },
+  tree(28, 0.6), tree(86, 0.55), cypress(320, 0.6), tree(456, 0.55),
+  tree(512, 0.5), tree(848, 0.6), cypress(1076, 0.55), tree(1168, 0.5),
+  tree(1408, 0.55),
+]
+
+/* --- ближний план: руины колоннады, храм и роща --- */
+
+const RIDGE_NEAR: Point[] = [
+  [0, 342], [70, 300], [138, 338], [204, 288], [266, 328], [326, 350],
+  [352, 330], [372, 316], [528, 316], [548, 332], [574, 352], [630, 306],
+  [690, 342], [748, 302], [808, 340], [862, 358], [918, 314], [958, 302],
+  [1046, 304], [1088, 346], [1148, 306], [1210, 342], [1266, 358], [1328, 316],
+  [1384, 346], [1440, 324],
+]
+
+const NEAR_SITES: Site[] = [
+  { x: 450, half: 78, el: <Colonnade scale={0.9} /> },
+  { x: 1002, half: 40, el: <Temple scale={0.54} /> },
+  tree(34, 0.9), cypress(96, 0.75), tree(172, 1), tree(238, 0.85),
+  palm(296, 0.95), cypress(344, 0.7), tree(560, 0.8), tree(606, 1.05),
+  palm(664, 0.85), tree(720, 1), tree(780, 0.9), cypress(838, 0.75),
+  tree(890, 1.05), palm(934, 0.8), tree(1066, 0.9), cypress(1118, 0.75),
+  tree(1178, 1), palm(1240, 0.85), tree(1298, 0.95), cypress(1356, 0.8),
+  tree(1416, 0.9),
+]
+
+/* --- передний план: плотная древесная кромка --- */
+
+const RIDGE_FRONT: Point[] = [
+  [0, 386], [92, 360], [186, 384], [280, 356], [374, 382], [468, 354],
+  [562, 382], [656, 358], [750, 384], [844, 356], [938, 382], [1032, 354],
+  [1126, 382], [1220, 358], [1314, 382], [1408, 358], [1440, 372],
+]
+
+const FRONT_SITES: Site[] = [
+  tree(44, 1.1), tree(128, 1.35), palm(214, 0.95), tree(300, 1.25),
+  cypress(386, 1), tree(462, 1.3), palm(542, 1.05), tree(620, 1.2),
+  tree(700, 1.35), cypress(782, 1), tree(856, 1.25), palm(938, 1.1),
+  tree(1016, 1.3), cypress(1096, 0.95), tree(1172, 1.2), tree(1254, 1.35),
+  palm(1330, 1.05), tree(1412, 1.15),
+]
+
+/*
+  Площадки вырезаются один раз при загрузке модуля: и силуэт горы, и опора под
+  постройкой берутся из одного и того же результата.
+*/
+const FAR = terrace(RIDGE_FAR, FAR_SITES)
+const MID = terrace(RIDGE_MID, MID_SITES)
+const NEAR = terrace(RIDGE_NEAR, NEAR_SITES)
+const FRONT = terrace(RIDGE_FRONT, FRONT_SITES)
 
 export function Scene({
   theme,
@@ -153,7 +250,7 @@ export function Scene({
     ? ['#5c7b86', '#3c5a6b', '#263c4f', '#142130']
     : ['#7b5f7e', '#4d4068', '#2e2648', '#18132c']
 
-  const sunY = yAt(RIDGE_MID, PALACE_X) - 58
+  const sunY = yAt(MID, PALACE_X) - 58
 
   return (
     <div
@@ -198,17 +295,8 @@ export function Scene({
         <Cloud key={i} {...cloud} />
       ))}
 
-      {/* --- дальний план: мелкие храмы и башни для масштаба --- */}
       <Plane height={height} depth={0.24} shrink={0.05}>
-        <g fill={ridge[0]} opacity={0.62}>
-          <path d={ridgePath(RIDGE_FAR)} />
-          <OnRidge points={RIDGE_FAR} x={166}><Minaret height={44} /></OnRidge>
-          <OnRidge points={RIDGE_FAR} x={418}><Temple scale={0.5} /></OnRidge>
-          <OnRidge points={RIDGE_FAR} x={468}><Minaret height={34} /></OnRidge>
-          <OnRidge points={RIDGE_FAR} x={904}><Minaret height={40} /></OnRidge>
-          <OnRidge points={RIDGE_FAR} x={1130}><Ziggurat scale={0.46} /></OnRidge>
-          <OnRidge points={RIDGE_FAR} x={1296}><Minaret height={36} /></OnRidge>
-        </g>
+        <Ridge points={FAR} sites={FAR_SITES} fill={ridge[0]} opacity={0.62} />
       </Plane>
 
       {/*
@@ -238,16 +326,8 @@ export function Scene({
         <rect x="0" y="176" width="1440" height="150" fill={`url(#haze-${uid})`} />
       </Plane>
 
-      {/* --- средний план: дворец, храмы, колоннада --- */}
       <Plane height={height} depth={0.62} shrink={0.15}>
-        <g fill={ridge[1]}>
-          <path d={ridgePath(RIDGE_MID)} />
-          <OnRidge points={RIDGE_MID} x={206}><Temple scale={0.72} /></OnRidge>
-          <OnRidge points={RIDGE_MID} x={396}><Minaret height={54} /></OnRidge>
-          <OnRidge points={RIDGE_MID} x={PALACE_X}><Palace /></OnRidge>
-          <OnRidge points={RIDGE_MID} x={988}><Ziggurat scale={0.8} /></OnRidge>
-          <OnRidge points={RIDGE_MID} x={1288}><Temple scale={0.66} /></OnRidge>
-        </g>
+        <Ridge points={MID} sites={MID_SITES} fill={ridge[1]} />
       </Plane>
 
       {farBalloons.map((balloon, i) => (
@@ -258,27 +338,41 @@ export function Scene({
         <Birds key={i} {...bird} color={ridge[2]} />
       ))}
 
-      {/* --- ближний план: руины колоннады и деревья --- */}
       <Plane height={height} depth={0.82} shrink={0.24}>
-        <g fill={ridge[2]}>
-          <path d={ridgePath(RIDGE_NEAR)} />
-          <OnRidge points={RIDGE_NEAR} x={234}><Tree scale={1} /></OnRidge>
-          <OnRidge points={RIDGE_NEAR} x={450}><Colonnade scale={0.9} /></OnRidge>
-          <OnRidge points={RIDGE_NEAR} x={798}><Tree scale={0.82} /></OnRidge>
-          <OnRidge points={RIDGE_NEAR} x={1002}><Temple scale={0.54} /></OnRidge>
-          <OnRidge points={RIDGE_NEAR} x={1138}><Tree scale={1.1} /></OnRidge>
-        </g>
+        <Ridge points={NEAR} sites={NEAR_SITES} fill={ridge[2]} />
       </Plane>
 
-      {/* --- передний план --- */}
       <Plane height={height} depth={1} shrink={0.32}>
-        <g fill={ridge[3]}>
-          <path d={ridgePath(RIDGE_FRONT)} />
-          <OnRidge points={RIDGE_FRONT} x={358}><Tree scale={1.25} /></OnRidge>
-          <OnRidge points={RIDGE_FRONT} x={1078}><Tree scale={1.35} /></OnRidge>
-        </g>
+        <Ridge points={FRONT} sites={FRONT_SITES} fill={ridge[3]} />
       </Plane>
     </div>
+  )
+}
+
+/**
+ * Хребет вместе со своими постройками. Позиция каждой фигуры берётся из той же
+ * ломаной, которая только что нарисовала гору, — разъехаться им негде.
+ */
+function Ridge({
+  points,
+  sites,
+  fill,
+  opacity,
+}: {
+  points: Point[]
+  sites: Site[]
+  fill: string
+  opacity?: number
+}) {
+  return (
+    <g fill={fill} opacity={opacity}>
+      <path d={ridgePath(points)} />
+      {sites.map((site, i) => (
+        <g key={i} transform={`translate(${site.x} ${yAt(points, site.x)})`}>
+          {site.el}
+        </g>
+      ))}
+    </g>
   )
 }
 
@@ -331,30 +425,13 @@ function Plane({
   )
 }
 
-/**
- * Ставит постройку на поверхность хребта: координата Y берётся из той же
- * ломаной, что рисует гору, поэтому основание всегда совпадает со склоном.
- * Постройки рисуются вверх от нуля — низ фигуры и есть точка опоры.
- */
-function OnRidge({
-  points,
-  x,
-  children,
-}: {
-  points: Point[]
-  x: number
-  children: React.ReactNode
-}) {
-  return <g transform={`translate(${x} ${yAt(points, x)})`}>{children}</g>
-}
-
 /** Дворец: терраса, колоннада, верхний ярус с зубцами, башня со шпилем. */
-function Palace() {
+function Palace({ scale = 1 }: { scale?: number }) {
   const columns = Array.from({ length: 9 }, (_, i) => -108 + i * 27)
   const windows = Array.from({ length: 5 }, (_, i) => -44 + i * 22)
 
   return (
-    <g>
+    <g transform={`scale(${scale})`}>
       <rect x="-125" y="-20" width="250" height="22" />
       {columns.map((cx, i) => (
         <rect key={i} x={cx} y="-46" width="11" height="26" />
@@ -432,7 +509,7 @@ function Colonnade({ scale }: { scale: number }) {
 function Minaret({ height }: { height: number }) {
   return (
     <g>
-      <rect x="-5" y={-height} width="10" height={height} />
+      <rect x="-5" y={-height} width="10" height={height + 1} />
       <path d={`M0 ${-height - 20} L7 ${-height} L-7 ${-height} Z`} />
       <rect x="-9" y={-height + 14} width="18" height="4" />
     </g>
@@ -445,6 +522,30 @@ function Tree({ scale }: { scale: number }) {
     <g transform={`scale(${scale})`}>
       <rect x="-2" y="-26" width="4" height="27" />
       <path d="M0 -50 L26 -30 L14 -24 L20 -18 L-20 -18 L-14 -24 L-26 -30 Z" />
+    </g>
+  )
+}
+
+/** Кипарис: узкий вертикальный силуэт — разбивает ряд зонтичных крон. */
+function Cypress({ scale }: { scale: number }) {
+  return (
+    <g transform={`scale(${scale})`}>
+      <rect x="-1.6" y="-14" width="3.2" height="15" />
+      <path d="M0 -54 C8.5 -41 9.5 -25 0 -11 C-9.5 -25 -8.5 -41 0 -54 Z" />
+    </g>
+  )
+}
+
+/** Пальма: наклонный ствол и веер листьев — пустынный акцент. */
+function Palm({ scale }: { scale: number }) {
+  return (
+    <g transform={`scale(${scale})`}>
+      <path d="M-2 1 C-3 -14 1 -26 4 -38 L9 -37 C5 -25 3 -13 3.5 1 Z" />
+      <path d="M7 -38 C17 -44 27 -42 33 -34 C25 -38 15 -37 8 -33 Z" />
+      <path d="M7 -39 C15 -50 27 -52 34 -47 C25 -47 15 -44 9 -36 Z" />
+      <path d="M4 -39 C-4 -49 -16 -51 -24 -46 C-14 -46 -5 -43 1 -35 Z" />
+      <path d="M3 -38 C-6 -43 -18 -42 -25 -33 C-16 -37 -7 -36 1 -33 Z" />
+      <circle cx="5" cy="-39" r="2.6" />
     </g>
   )
 }
