@@ -10,9 +10,11 @@ import tools.jackson.databind.PropertyNamingStrategies;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 
 /**
  * Читает config/game.json и перечитывает его, если файл изменился на диске.
@@ -36,8 +38,42 @@ public class GameConfigService {
     private volatile long cachedModifiedAt = -1;
 
     public GameConfigService(@Value("${game.config-path}") String configPath) {
-        this.configPath = Paths.get(configPath).toAbsolutePath().normalize();
+        this.configPath = resolve(configPath);
         log.info("Game config path: {}", this.configPath);
+    }
+
+    /**
+     * Ищет config/game.json по нескольким адресам, потому что рабочая папка
+     * зависит от способа запуска: из backend/ через mvnw, из корня репозитория
+     * или из произвольной папки через java -jar. Если файла нет нигде —
+     * разворачивает эталон из jar рядом с собой, чтобы игра поднялась в любом
+     * случае и при этом осталась редактируемой (иначе hot-reload был бы невозможен).
+     */
+    private static Path resolve(String configured) {
+        List<Path> candidates = List.of(
+                Paths.get(configured),
+                Paths.get("config/game.json"),
+                Paths.get("../config/game.json"));
+
+        for (Path candidate : candidates) {
+            Path absolute = candidate.toAbsolutePath().normalize();
+            if (Files.isRegularFile(absolute)) {
+                return absolute;
+            }
+        }
+
+        Path target = Paths.get("config/game.json").toAbsolutePath().normalize();
+        try (InputStream packaged = GameConfigService.class.getResourceAsStream("/defaults/game.json")) {
+            if (packaged == null) {
+                throw new IllegalStateException("Default game.json missing from the jar");
+            }
+            Files.createDirectories(target.getParent());
+            Files.copy(packaged, target);
+            log.info("Game config not found, unpacked default to {}", target);
+            return target;
+        } catch (IOException e) {
+            throw new IllegalStateException("Cannot unpack default game config to " + target, e);
+        }
     }
 
     /**

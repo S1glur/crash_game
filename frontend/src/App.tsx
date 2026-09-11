@@ -6,6 +6,7 @@ import { FlightScreen } from './screens/FlightScreen'
 import { ResultScreen } from './screens/ResultScreen'
 import { ThemeScreen } from './screens/ThemeScreen'
 import { useGame } from './store/gameStore'
+import { sound } from './utils/sound'
 
 export default function App() {
   const phase = useGame((s) => s.phase)
@@ -32,6 +33,8 @@ export default function App() {
       )}
       {phase === 'flight' && <FlightScreen />}
       {phase === 'result' && <ResultScreen />}
+
+      {phase !== 'loading' && <SoundToggle />}
 
       {rulesOpen && <RulesModal onClose={() => setRulesOpen(false)} />}
       {leaderboardOpen && <LeaderboardModal onClose={() => setLeaderboardOpen(false)} />}
@@ -81,5 +84,48 @@ function Loading() {
       </span>
       <span className="label">Готовим полёт…</span>
     </div>
+  )
+}
+
+/**
+ * Переключатель звука. Нужен не только для удобства: на защите проектор
+ * обычно уже со звуком, и возможность быстро приглушить игру важнее, чем
+ * кажется. Состояние переживает перезагрузку через localStorage.
+ */
+function SoundToggle() {
+  const [muted, setMuted] = useState(sound.muted)
+
+  return (
+    <button
+      className="chip"
+      onClick={() => setMuted(sound.toggleMute())}
+      title={muted ? 'Включить звук' : 'Выключить звук'}
+      aria-label={muted ? 'Включить звук' : 'Выключить звук'}
+      style={{
+        position: 'fixed',
+        right: 16,
+        bottom: 16,
+        zIndex: 40,
+        width: 38,
+        height: 38,
+        padding: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        opacity: muted ? 0.55 : 1,
+      }}
+    >
+      <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7">
+        <path d="M4 7.5h3L11 4v12L7 12.5H4z" fill="currentColor" stroke="none" />
+        {muted ? (
+          <path d="M14 7.5l4 5M18 7.5l-4 5" strokeLinecap="round" />
+        ) : (
+          <>
+            <path d="M13.8 7.2a4 4 0 0 1 0 5.6" strokeLinecap="round" />
+            <path d="M16.2 5.2a7 7 0 0 1 0 9.6" strokeLinecap="round" />
+          </>
+        )}
+      </svg>
+    </button>
   )
 }

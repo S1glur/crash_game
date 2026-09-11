@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { api } from '../api/client'
 import { subscribeToRound } from '../api/roundSocket'
+import { sound } from '../utils/sound'
 import type {
   BetOption,
   GameConfig,
@@ -108,6 +109,7 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   setTheme(theme) {
+    sound.select()
     set({ theme, selectedBetId: null })
   },
 
@@ -128,6 +130,7 @@ export const useGame = create<GameStore>((set, get) => ({
     if (!selectedBetId) return
     try {
       const started = await api.startRound(theme, selectedBetId)
+      sound.launch()
       set({
         balance: started.balanceAfter,
         phase: 'flight',
@@ -174,6 +177,7 @@ export const useGame = create<GameStore>((set, get) => ({
                 points: event.totalPoints,
               },
             })
+            sound.level(event.levelIndex)
             break
 
           case 'boost':
@@ -186,12 +190,14 @@ export const useGame = create<GameStore>((set, get) => ({
                 serverMultiplierAt: performance.now(),
               },
             })
+            sound.boost()
             break
 
           case 'round.finished': {
             set({
               flight: { ...get().flight!, finished: true, points: event.points },
             })
+            sound.crash()
             void finishRound(started.roundId, set, get)
             break
           }
@@ -218,6 +224,7 @@ export const useGame = create<GameStore>((set, get) => ({
         },
         balance: get().balance + result.winAmount,
       })
+      sound.cashout()
     } catch (e) {
       set({ error: (e as Error).message })
     }

@@ -81,11 +81,21 @@ public class GameController {
 
     /**
      * Правила игры — обязательный отдельный доступ до подтверждения ставки.
-     * Текст читается из docs/rules.md, чтобы не держать две копии формулировок.
+     * Текст читается из docs/rules.md, чтобы не держать две копии формулировок;
+     * при запуске из произвольной папки (java -jar) файла рядом нет, тогда
+     * берём копию, упакованную в jar.
      */
     @GetMapping("/rules")
     public Map<String, String> rules() throws IOException {
-        return Map.of("content", Files.readString(rulesPath, StandardCharsets.UTF_8));
+        if (Files.isRegularFile(rulesPath)) {
+            return Map.of("content", Files.readString(rulesPath, StandardCharsets.UTF_8));
+        }
+        try (var packaged = getClass().getResourceAsStream("/defaults/rules.md")) {
+            if (packaged == null) {
+                throw new IOException("Rules text not found at " + rulesPath + " nor in the jar");
+            }
+            return Map.of("content", new String(packaged.readAllBytes(), StandardCharsets.UTF_8));
+        }
     }
 
     /** История завершённых раундов всех пользователей прототипа. */

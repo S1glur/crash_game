@@ -66,6 +66,31 @@
 	</dependencies>
 
 	<build>
+		<resources>
+			<resource>
+				<directory>src/main/resources</directory>
+			</resource>
+			<!--
+				Эталонные конфиг и текст правил кладём внутрь jar. Если рядом с
+				jar их нет (запуск из произвольной папки), приложение развернёт
+				их при старте — иначе игра не поднимется у того, кто просто
+				скачал артефакт.
+			-->
+			<resource>
+				<directory>../config</directory>
+				<targetPath>defaults</targetPath>
+				<includes>
+					<include>game.json</include>
+				</includes>
+			</resource>
+			<resource>
+				<directory>../docs</directory>
+				<targetPath>defaults</targetPath>
+				<includes>
+					<include>rules.md</include>
+				</includes>
+			</resource>
+		</resources>
 		<plugins>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
@@ -73,5 +98,76 @@
 			</plugin>
 		</plugins>
 	</build>
+
+	<profiles>
+		<!--
+			Профиль сборки одним артефактом: собирает фронтенд и кладёт его в
+			static/, чтобы игра открывалась по одному адресу и запускалась одной
+			командой java -jar. Node на машине проверяющего не нужен — плагин
+			скачивает его сам во время сборки.
+
+			Обычная сборка (mvnw spring-boot:run) профиль не включает, чтобы не
+			пересобирать фронт на каждый запуск в разработке.
+		-->
+		<profile>
+			<id>prod</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>com.github.eirslett</groupId>
+						<artifactId>frontend-maven-plugin</artifactId>
+						<version>1.15.1</version>
+						<configuration>
+							<workingDirectory>../frontend</workingDirectory>
+							<installDirectory>${project.build.directory}</installDirectory>
+						</configuration>
+						<executions>
+							<execution>
+								<id>install-node-and-npm</id>
+								<goals><goal>install-node-and-npm</goal></goals>
+								<configuration>
+									<nodeVersion>v22.14.0</nodeVersion>
+								</configuration>
+							</execution>
+							<execution>
+								<id>npm-install</id>
+								<goals><goal>npm</goal></goals>
+								<configuration>
+									<arguments>ci</arguments>
+								</configuration>
+							</execution>
+							<execution>
+								<id>npm-build</id>
+								<goals><goal>npm</goal></goals>
+								<configuration>
+									<arguments>run build</arguments>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-resources-plugin</artifactId>
+						<executions>
+							<execution>
+								<id>copy-frontend</id>
+								<phase>prepare-package</phase>
+								<goals><goal>copy-resources</goal></goals>
+								<configuration>
+									<outputDirectory>${project.build.outputDirectory}/static</outputDirectory>
+									<resources>
+										<resource>
+											<directory>../frontend/dist</directory>
+										</resource>
+									</resources>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
 
 </project>
