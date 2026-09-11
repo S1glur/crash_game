@@ -7,15 +7,19 @@ export function LootChart({ probabilities }: { probabilities: number[] }) {
   const max = Math.max(...probabilities, 0.01)
 
   return (
-    <div className="panel" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 11 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+    /*
+      Блок намеренно плотный: на экране ставки под ним ещё автовывод и кнопка
+      «Начать полёт», и в прежних размерах кнопка уходила за нижний край.
+      Пояснение ушло вправо одной строкой, столбцы и подписи сжаты.
+    */
+    <div className="panel" style={{ padding: '11px 14px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
         <span className="label">Где вероятнее бустер</span>
-        <span style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.45 }}>
-          уровень разыгрывается сервером до взлёта
-        </span>
+        <div className="grow" />
+        <span style={{ fontSize: 10.5, fontWeight: 600, opacity: 0.42 }}>уровень выбирает сервер</span>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 48 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 30 }}>
         {probabilities.map((value, index) => {
           const share = value / max
           return (
@@ -32,14 +36,15 @@ export function LootChart({ probabilities }: { probabilities: number[] }) {
         })}
       </div>
 
-      <div style={{ display: 'flex', gap: 6 }}>
+      <div style={{ display: 'flex', gap: 4 }}>
         {probabilities.map((value, index) => (
           <span
             key={index}
             style={{
               flexGrow: 1,
               textAlign: 'center',
-              fontSize: 10.5,
+              fontSize: 9,
+              lineHeight: 1,
               fontWeight: value / max > 0.85 ? 700 : 600,
               color: value / max > 0.85 ? 'var(--amber)' : 'rgba(242,234,219,.45)',
             }}

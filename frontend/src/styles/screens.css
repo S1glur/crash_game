@@ -47,6 +47,15 @@
   border-color: rgba(242, 166, 73, 0.44);
 }
 
+/* Компактный чип для плотных рядов настроек на экране ставки: там их много,
+   и обычный размер уводил кнопку «Начать полёт» за нижний край экрана. */
+.chip-sm {
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+}
+
 /* --- экран полёта --- */
 
 .flight-body {
@@ -93,7 +102,7 @@
 .bet-col {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   min-height: 0;
 }
 
@@ -101,7 +110,7 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 14px 18px;
+  padding: 10px 16px;
   background: rgba(16, 13, 32, 0.55);
   border: 1px solid rgba(242, 234, 219, 0.14);
   border-radius: 3px;

@@ -473,16 +473,16 @@ function StakeInput({
   }
 
   return (
-    <div className="panel" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div className="panel" style={{ padding: '11px 14px', display: 'flex', flexDirection: 'column', gap: 9 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <span className="label">Сумма ставки</span>
         <div className="grow" />
-        <span style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.5 }}>
+        <span style={{ fontSize: 10.5, fontWeight: 600, opacity: 0.5 }}>
           от {fmtInt(limits.min)} до {fmtInt(maxAffordable)}
         </span>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 11, flexWrap: 'wrap' }}>
         <input
           className="num"
           inputMode="numeric"
@@ -494,13 +494,13 @@ function StakeInput({
           }}
           aria-label="Сумма ставки в баллах"
           style={{
-            width: 128,
-            padding: '8px 12px',
+            width: 104,
+            padding: '5px 10px',
             background: 'rgba(16,13,32,.6)',
             border: '1px solid rgba(242,166,73,.45)',
             borderRadius: 3,
             color: 'var(--cream)',
-            fontSize: 26,
+            fontSize: 22,
             textAlign: 'center',
           }}
         />
@@ -512,17 +512,17 @@ function StakeInput({
           value={Math.min(value, maxAffordable)}
           onChange={(event) => onChange(Number(event.target.value))}
           aria-label="Ползунок суммы ставки"
-          style={{ flex: '1 1 160px', accentColor: 'var(--amber)' }}
+          style={{ flex: '1 1 140px', accentColor: 'var(--amber)' }}
         />
       </div>
 
-      <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
         {limits.presets
           .filter((preset) => preset <= maxAffordable)
           .map((preset) => (
             <button
               key={preset}
-              className="chip"
+              className="chip chip-sm"
               onClick={() => onChange(preset)}
               aria-pressed={value === preset}
               style={{
@@ -533,7 +533,7 @@ function StakeInput({
               {fmtInt(preset)}
             </button>
           ))}
-        <button className="chip" onClick={() => onChange(maxAffordable)}>
+        <button className="chip chip-sm" onClick={() => onChange(maxAffordable)}>
           Максимум
         </button>
       </div>
@@ -557,17 +557,16 @@ function AutoCashout({
   const presets = [1.5, 2, 3, 5]
 
   return (
-    <div className="panel" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+    /*
+      Заголовок и кнопки в одной строке, а не в двух: блок стоит прямо над
+      «Начать полёт», и каждая лишняя строка уводила кнопку под срез экрана.
+    */
+    <div className="panel" style={{ padding: '11px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
         <span className="label">Автовывод</span>
-        <span style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.55 }}>
-          заберём сами на этом коэффициенте
-        </span>
-      </div>
 
-      <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
         <button
-          className="chip"
+          className="chip chip-sm"
           onClick={() => onChange(null)}
           aria-pressed={value === null}
           style={{
@@ -583,7 +582,7 @@ function AutoCashout({
           .map((preset) => (
             <button
               key={preset}
-              className="chip"
+              className="chip chip-sm"
               onClick={() => onChange(preset)}
               aria-pressed={value === preset}
               style={{
@@ -601,16 +600,17 @@ function AutoCashout({
           step={0.1}
           value={value ?? ''}
           placeholder="свой"
+          aria-label="Свой порог автовывода"
           onChange={(e) => {
             const parsed = Number(e.target.value)
             onChange(e.target.value === '' || Number.isNaN(parsed) ? null : parsed)
           }}
           style={{
-            width: 84,
+            width: 66,
             font: 'inherit',
             fontWeight: 700,
-            fontSize: 12,
-            padding: '6px 9px',
+            fontSize: 11,
+            padding: '4px 7px',
             background: 'rgba(16,13,32,.6)',
             color: 'var(--cream)',
             border: '1px solid var(--line)',
@@ -619,16 +619,13 @@ function AutoCashout({
         />
       </div>
 
-      <span style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.66, lineHeight: 1.45 }}>
+      <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.6, lineHeight: 1.4 }}>
         {value === null
-          ? 'Выключен — забирать нужно вручную, пока шар не лопнул.'
+          ? 'Выключен — забирать вручную, пока шар не лопнул.'
           : bet > 0
-            ? `На ×${value.toFixed(2).replace('.', ',')} получите ${fmtInt(
-                Math.floor(bet * value),
-              )}. Если сработает бустер ×${boostMultiplier}, порог будет достигнут раньше.`
-            : `Сработает на ×${value.toFixed(2).replace('.', ',')}, если шар долетит. Минимум — ×${minimum
-                .toFixed(2)
-                .replace('.', ',')} (первый уровень).`}
+            ? `На ×${value.toFixed(2).replace('.', ',')} получите ${fmtInt(Math.floor(bet * value))}` +
+              (boostMultiplier > 1 ? ` · с бустером порог возьмём раньше` : '')
+            : `Минимум — ×${minimum.toFixed(2).replace('.', ',')} (первый уровень).`}
       </span>
     </div>
   )
