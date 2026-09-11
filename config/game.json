@@ -95,5 +95,10 @@
   "ui": {
     "result_screen_auto_advance_sec": 10,
     "onboarding_hint_duration_sec": 4
+  },
+
+  "dev_mode": {
+    "enabled": true,
+    "_comment": "Разрешает поля seed и speedFactor в POST /api/round/start. Перед сдачей экспертам решить: оставить true (удобно демонстрировать бустер) или выключить. При false сервер игнорирует эти поля."
   }
 }
