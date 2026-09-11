@@ -1,0 +1,246 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Manrope:wght@500;600;700;800&display=swap');
+
+:root {
+  /* Сумеречное небо Alto: сверху ночь, внизу тёплый горизонт */
+  --sky-1: #101530;
+  --sky-2: #1e2242;
+  --sky-3: #38315c;
+  --sky-4: #6b466a;
+  --sky-5: #a85c64;
+  --sky-6: #d9855a;
+  --sky-7: #f0a867;
+
+  --ink: #16132c;
+  --ink-soft: #241e36;
+  --cream: #f2eadb;
+  --amber: #f2a649;
+  --amber-dim: rgba(242, 166, 73, 0.13);
+
+  --bordeaux: #8c2f3a;
+  --bordeaux-lt: #e8757f;
+  --emerald: #2c6b52;
+  --emerald-lt: #67c79b;
+
+  --panel: rgba(16, 13, 32, 0.68);
+  --panel-strong: rgba(16, 13, 32, 0.86);
+  --line: rgba(242, 234, 219, 0.16);
+  --line-soft: rgba(242, 234, 219, 0.1);
+
+  --serif: 'Playfair Display', Georgia, serif;
+  --sans: 'Manrope', 'Segoe UI', system-ui, sans-serif;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  background: var(--sky-1);
+  color: var(--cream);
+  overflow: hidden;
+}
+
+button {
+  font-family: inherit;
+  color: inherit;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* --- типографика --- */
+
+.label {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(242, 234, 219, 0.55);
+}
+
+.num {
+  font-family: var(--serif);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/* --- поверхности --- */
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.hr {
+  height: 1px;
+  background: var(--line);
+}
+
+/* --- кнопки --- */
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  border-radius: 3px;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  transition: filter 0.15s ease, transform 0.1s ease;
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn-primary {
+  background: var(--amber);
+  color: var(--ink-soft);
+  box-shadow: 0 0 40px rgba(242, 166, 73, 0.26);
+}
+
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.btn-primary:disabled {
+  background: rgba(242, 234, 219, 0.14);
+  color: rgba(242, 234, 219, 0.4);
+  box-shadow: none;
+}
+
+.btn-ghost {
+  border: 1px solid rgba(242, 234, 219, 0.4);
+  color: var(--cream);
+  letter-spacing: 0.18em;
+  font-size: 12.5px;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: rgba(242, 234, 219, 0.08);
+}
+
+.btn-ghost:disabled {
+  border-color: rgba(242, 234, 219, 0.18);
+  color: rgba(242, 234, 219, 0.35);
+}
+
+/* --- служебное --- */
+
+.grow {
+  flex-grow: 1;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+}
+
+.scroll-y {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(242, 234, 219, 0.25) transparent;
+}
+
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-1.1deg);
+  }
+  50% {
+    transform: translateY(-15px) rotate(1.1deg);
+  }
+}
+
+@keyframes flame {
+  0%,
+  100% {
+    opacity: 0.65;
+    transform: scale(0.95);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes driftFar {
+  from {
+    transform: translateX(-140px);
+  }
+  to {
+    transform: translateX(110vw);
+  }
+}
+
+@keyframes markPulse {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes floatUp {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-40px);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
