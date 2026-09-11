@@ -1,0 +1,92 @@
+package ru.stoloto.balloon.domain;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
+import java.time.Instant;
+
+/** Завершённый раунд — попадает в историю игр (обязательный пункт сценария 1). */
+@Entity
+@Table(name = "rounds")
+public class RoundEntity {
+
+    @Id
+    private String roundId;
+
+    private String theme;
+    private int bet;
+
+    /** "cashout" или "crash". */
+    private String outcome;
+
+    private Double cashedOutAt;
+    private double crashAt;
+    private int winAmount;
+    private int points;
+    private int boostTier;
+    private boolean boostApplied;
+
+    private String rewardId;
+    private String rewardType;
+
+    @Column(length = 64)
+    private String resultHash;
+    private long serverSeed;
+
+    /**
+     * Сырые значения, от которых считался resultHash. Без них игрок не может
+     * пересчитать хеш и проверить честность: crashAt округлён до 2 знаков,
+     * а позиция бустера иначе вообще не раскрывается.
+     */
+    private double crashPointRaw;
+    private int boostLevelIndex;
+
+    private Instant finishedAt;
+
+    protected RoundEntity() {
+        // для JPA
+    }
+
+    public RoundEntity(String roundId, String theme, int bet, String outcome, Double cashedOutAt,
+                       double crashAt, int winAmount, int points, int boostTier, boolean boostApplied,
+                       String rewardId, String rewardType, String resultHash, long serverSeed,
+                       double crashPointRaw, int boostLevelIndex) {
+        this.roundId = roundId;
+        this.theme = theme;
+        this.bet = bet;
+        this.outcome = outcome;
+        this.cashedOutAt = cashedOutAt;
+        this.crashAt = crashAt;
+        this.winAmount = winAmount;
+        this.points = points;
+        this.boostTier = boostTier;
+        this.boostApplied = boostApplied;
+        this.rewardId = rewardId;
+        this.rewardType = rewardType;
+        this.resultHash = resultHash;
+        this.serverSeed = serverSeed;
+        this.crashPointRaw = crashPointRaw;
+        this.boostLevelIndex = boostLevelIndex;
+        this.finishedAt = Instant.now();
+    }
+
+    public String getRoundId() { return roundId; }
+    public String getTheme() { return theme; }
+    public int getBet() { return bet; }
+    public String getOutcome() { return outcome; }
+    public Double getCashedOutAt() { return cashedOutAt; }
+    public double getCrashAt() { return crashAt; }
+    public int getWinAmount() { return winAmount; }
+    public int getPoints() { return points; }
+    public int getBoostTier() { return boostTier; }
+    public boolean isBoostApplied() { return boostApplied; }
+    public String getRewardId() { return rewardId; }
+    public String getRewardType() { return rewardType; }
+    public String getResultHash() { return resultHash; }
+    public long getServerSeed() { return serverSeed; }
+    public double getCrashPointRaw() { return crashPointRaw; }
+    public int getBoostLevelIndex() { return boostLevelIndex; }
+    public Instant getFinishedAt() { return finishedAt; }
+}

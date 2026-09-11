@@ -1,0 +1,83 @@
+### Воздушный Шар — ручная проверка API
+# Открыть в VS Code с расширением REST Client (humao.rest-client) и жать
+# "Send Request" над нужным блоком. Поднятый бэкенд: cd backend && ./mvnw spring-boot:run
+#
+# Для проверки живого полёта шара удобнее страница http://localhost:8080/ws-test.html —
+# она показывает поток STOMP-событий и кнопку «Забрать».
+
+@host = http://localhost:8080
+@roundId = r-1
+
+### Стартовое состояние: баланс, варианты ставок, количество уровней
+GET {{host}}/api/state
+
+### Правила игры (обязательный доступ до подтверждения ставки)
+GET {{host}}/api/rules
+
+### История завершённых раундов
+GET {{host}}/api/history?limit=20
+
+### Текущая конфигурация игры
+GET {{host}}/api/config
+
+### Старт раунда — обычный, случайный исход
+POST {{host}}/api/round/start
+Content-Type: application/json
+
+{
+  "theme": "green",
+  "betOptionId": "boost-x2"
+}
+
+### Старт раунда — dev: фиксированный seed + ускорение в 5 раз
+# Один и тот же seed даёт один и тот же раунд: и точку краха, и позицию бустера.
+POST {{host}}/api/round/start
+Content-Type: application/json
+
+{
+  "theme": "green",
+  "betOptionId": "boost-x3",
+  "seed": 42,
+  "speedFactor": 5
+}
+
+### Старт раунда — красная тема (12 уровней)
+POST {{host}}/api/round/start
+Content-Type: application/json
+
+{
+  "theme": "red",
+  "betOptionId": "boost-x4",
+  "seed": 3,
+  "speedFactor": 3
+}
+
+### Забрать выигрыш (доступно только после первого уровня)
+POST {{host}}/api/round/{{roundId}}/cashout
+
+### Итог раунда (доступен после краха) — выигрыш, очки, награда, serverSeed
+GET {{host}}/api/round/{{roundId}}
+
+### Ошибка: несуществующий вариант ставки -> INVALID_BET_OPTION
+POST {{host}}/api/round/start
+Content-Type: application/json
+
+{
+  "theme": "green",
+  "betOptionId": "nope"
+}
+
+### Ошибка: неизвестная тема -> VALIDATION_ERROR
+POST {{host}}/api/round/start
+Content-Type: application/json
+
+{
+  "theme": "blue",
+  "betOptionId": "no-boost"
+}
+
+### Статистика мат. модели — обоснование расчётами, а не одним раундом
+GET {{host}}/api/dev/simulate?rounds=20000&theme=green
+
+### Статистика по красной теме
+GET {{host}}/api/dev/simulate?rounds=20000&theme=red

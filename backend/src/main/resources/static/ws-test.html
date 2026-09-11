@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Воздушный Шар — тест WebSocket</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #12141a; color: #e6e8ee; }
+    h1 { font-size: 18px; margin: 0 0 12px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    label { font-size: 13px; opacity: .8; }
+    input, select, button { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid #333a4a;
+      background: #1b1f29; color: inherit; }
+    button { cursor: pointer; background: #2b6cb0; border-color: #2b6cb0; }
+    button:disabled { opacity: .5; cursor: default; }
+    button.cashout { background: #2f855a; border-color: #2f855a; }
+    #multiplier { font-size: 42px; font-weight: 700; margin: 8px 0; font-variant-numeric: tabular-nums; }
+    pre { background: #0c0e13; border: 1px solid #242a36; border-radius: 8px; padding: 12px;
+      max-height: 55vh; overflow: auto; font-size: 12px; line-height: 1.5; margin: 0; }
+    .level { color: #f6ad55; }
+    .boost { color: #f687b3; font-weight: 700; }
+    .finished { color: #68d391; font-weight: 700; }
+    .err { color: #fc8181; }
+  </style>
+</head>
+<body>
+<h1>Тест игрового цикла без фронтенда</h1>
+
+<div class="row">
+  <label>Тема
+    <select id="theme">
+      <option value="green">green (9 уровней)</option>
+      <option value="red">red (12 уровней)</option>
+    </select>
+  </label>
+  <label>Ставка
+    <select id="bet">
+      <option value="no-boost">no-boost</option>
+      <option value="boost-x2" selected>boost-x2</option>
+      <option value="boost-x3">boost-x3</option>
+      <option value="boost-x4">boost-x4</option>
+    </select>
+  </label>
+  <label>seed <input id="seed" size="6" placeholder="случайный"></label>
+  <label>speed <input id="speed" size="4" value="1"></label>
+  <button id="start">Начать раунд</button>
+  <button id="cashout" class="cashout" disabled>Забрать</button>
+</div>
+
+<div id="multiplier">—</div>
+<pre id="log">Нажми «Начать раунд».</pre>
+
+<script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.6.1/dist/sockjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
+<script>
+  const logEl = document.getElementById('log');
+  const multiplierEl = document.getElementById('multiplier');
+  const startBtn = document.getElementById('start');
+  const cashoutBtn = document.getElementById('cashout');
+
+  let client = null;
+  let subscription = null;
+  let roundId = null;
+
+  function log(message, cls) {
+    const line = document.createElement('div');
+    if (cls) line.className = cls;
+    line.textContent = new Date().toLocaleTimeString() + '  ' + message;
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function connect() {
+    return new Promise((resolve, reject) => {
+      if (client && client.connected) return resolve();
+      client = new StompJs.Client({
+        webSocketFactory: () => new SockJS('/ws'),
+        reconnectDelay: 0,
+        onConnect: () => { log('STOMP подключён'); resolve(); },
+        onStompError: (frame) => { log('STOMP ошибка: ' + frame.headers.message, 'err'); reject(frame); }
+      });
+      client.activate();
+    });
+  }
+
+  function subscribe(id) {
+    subscription = client.subscribe('/topic/round/' + id, (message) => {
+      const event = JSON.parse(message.body);
+      if (event.type === 'tick') {
+        multiplierEl.textContent = '×' + event.multiplier.toFixed(2);
+      } else if (event.type === 'level') {
+        log(`уровень ${event.levelIndex} пройден, +${event.pointsAwarded} очков (всего ${event.totalPoints})`, 'level');
+        cashoutBtn.disabled = false;
+      } else if (event.type === 'boost') {
+        log(`БУСТЕР ×${event.boostMultiplier} на уровне ${event.levelIndex} → коэффициент ${event.multiplierAfter}`, 'boost');
+      } else if (event.type === 'round.finished') {
+        multiplierEl.textContent = '×' + event.crashAt.toFixed(2) + ' 💥';
+        log(`РАУНД ЗАВЕРШЁН: ${event.outcome}, crashAt=${event.crashAt}, выигрыш=${event.winAmount}, очки=${event.points}`, 'finished');
+        log(`serverSeed=${event.serverSeed} (можно проверить resultHash)`, 'finished');
+        cashoutBtn.disabled = true;
+        startBtn.disabled = false;
+        if (subscription) subscription.unsubscribe();
+      }
+    });
+  }
+
+  startBtn.onclick = async () => {
+    startBtn.disabled = true;
+    multiplierEl.textContent = '—';
+    try {
+      await connect();
+      const body = {
+        theme: document.getElementById('theme').value,
+        betOptionId: document.getElementById('bet').value
+      };
+      const seed = document.getElementById('seed').value.trim();
+      if (seed) body.seed = Number(seed);
+      const speed = document.getElementById('speed').value.trim();
+      if (speed) body.speedFactor = Number(speed);
+
+      const response = await fetch('/api/round/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        log('Ошибка старта: ' + data.error + ' — ' + data.message, 'err');
+        startBtn.disabled = false;
+        return;
+      }
+      roundId = data.roundId;
+      log(`раунд ${roundId}: ставка ${data.bet}, бустер ×${data.boostMultiplier}, баланс ${data.balanceAfter}`);
+      log(`resultHash=${data.resultHash}`);
+      log(`пороги уровней: ${data.levelThresholds.join(', ')}`);
+      subscribe(roundId);
+    } catch (e) {
+      log('Сбой: ' + e, 'err');
+      startBtn.disabled = false;
+    }
+  };
+
+  cashoutBtn.onclick = async () => {
+    cashoutBtn.disabled = true;
+    const response = await fetch(`/api/round/${roundId}/cashout`, { method: 'POST' });
+    const data = await response.json();
+    if (!response.ok) {
+      log('Ошибка cashout: ' + data.error + ' — ' + data.message, 'err');
+      return;
+    }
+    log(`ЗАБРАЛ на ×${data.cashedOutAt}: выигрыш ${data.winAmount}, очки ${data.pointsSoFar}`, 'finished');
+    log('шар продолжает лететь до краха — итог уже не изменится');
+  };
+</script>
+</body>
+</html>

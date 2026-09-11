@@ -163,13 +163,27 @@ Response 200:
   "winAmount": 352,
   "points": 278,
   "reward": { "type": "puzzle-piece", "id": "green-7" },
-  "serverSeed": "8b7a...",
-  "resultHash": "3f9c2a...e1"
+  "balance": 1046,
+  "resultHash": "3f9c2a...e1",
+  "serverSeed": "42",
+  "crashPointRaw": "3.560465",
+  "boostLevelIndex": -1
 }
 ```
 `outcome`: `cashout` | `crash`. При `crash` — `winAmount: 0`, `cashedOutAt: null`,
 `reward` заполняется по тем же правилам (награда даётся всегда, не только при
 выигрыше).
+
+Последние четыре поля — для проверки честности. `crashAt` округлён до 2 знаков и
+потому для сверки хеша не годится, а позиция бустера иначе вообще не
+раскрывается; без них пересчитать `resultHash` невозможно. Проверка:
+
+```
+sha256("<crashPointRaw>|<boostLevelIndex>|<serverSeed>") === resultHash
+sha256("3.560465|-1|42") === "7ecdc7ce..."
+```
+
+`boostLevelIndex` равен `-1`, если бустер в раунде не разыгрывался.
 
 ### `GET /api/config`
 Текущая игровая конфигурация (для админки — доп. модуль). Отдаёт содержимое

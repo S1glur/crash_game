@@ -12,7 +12,7 @@
 
 ## Стек
 
-- **Backend:** Java 21, Spring Boot 3, WebSocket (STOMP over SockJS), H2 (in-memory)
+- **Backend:** Java 21, Spring Boot 4.1, WebSocket (STOMP over SockJS), H2 (in-memory)
 - **Frontend:** React 18, Vite, TypeScript
 - **Конфигурация:** `config/game.json` (hot-reload, без пересборки кода)
 
@@ -33,15 +33,37 @@ docs/       контракт API, правила игры, обосновани�
 - [`docs/math-model.md`](docs/math-model.md) — математическая модель crash-раунда
 - [`CLAUDE.md`](CLAUDE.md) — правила разработки, роли, git-флоу
 
-## Запуск (заполняется по мере готовности backend/frontend)
+## Запуск
 
 ### Backend
+
+Требуется **JDK 21+** (Spring Boot 4 не работает на Java 11/17-).
+Проверить: `java -version`. Установить: `winget install EclipseAdoptium.Temurin.21.JDK`.
 
 ```bash
 cd backend
 ./mvnw spring-boot:run
 ```
-Поднимется на `http://localhost:8080`, WebSocket — `http://localhost:8080/ws`.
+
+Поднимется на `http://localhost:8080`:
+
+| URL | Что это |
+|---|---|
+| `/api/...` | REST API (контракт — `docs/api.md`) |
+| `/ws` | WebSocket STOMP (тики коэффициента) |
+| `/ws-test.html` | Страница проверки игрового цикла без фронтенда |
+| `/h2-console` | Консоль БД (`jdbc:h2:mem:balloon`, логин `sa`, пароль пустой) |
+
+Пути к `config/game.json` и `docs/rules.md` заданы относительно папки `backend`
+в `application.properties` — запускать сервер нужно именно из неё.
+
+### Проверка бэкенда без фронтенда
+
+- **`http://localhost:8080/ws-test.html`** — выбрать тему/ставку, нажать «Начать
+  раунд»: видно поток тиков, пересечение уровней, срабатывание бустера, крах.
+  Поля `seed` и `speed` позволяют воспроизвести один и тот же раунд и ускорить
+  полёт.
+- **`docs/api.http`** — все запросы контракта для расширения REST Client в VS Code.
 
 ### Frontend
 
