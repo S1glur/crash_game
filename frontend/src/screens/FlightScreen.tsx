@@ -6,9 +6,6 @@ import { Scene } from '../components/Scene'
 import { useGame } from '../store/gameStore'
 import { fmtInt, fmtMult, levelProgress } from '../utils/format'
 
-/** Пикселей подъёма сцены на один пройденный уровень. */
-const LIFT_PER_LEVEL = 46
-
 export function FlightScreen() {
   const flight = useGame((s) => s.flight)
   const theme = useGame((s) => s.theme)
@@ -78,14 +75,18 @@ export function FlightScreen() {
   }, [flight, pointsPerLine])
 
   /**
-   * Сцена едет от серверного коэффициента (10 раз/сек), а не от
-   * интерполированного: иначе четыре слоя гор перерисовывались бы 60 раз
+   * Высота полёта как доля от полной шкалы, 0…1. Сцена сама решает, насколько
+   * сдвинуть и уменьшить каждый план — так ощущение подъёма создаётся
+   * отдалением земли, а не движением шара по экрану.
+   *
+   * Считается от серверного коэффициента (10 раз/сек), а не от
+   * интерполированного: иначе четыре плана гор перерисовывались бы 60 раз
    * в секунду. Короткий CSS-переход сглаживает шаги до непрерывного движения.
    */
-  const sceneLift = useMemo(
-    () => (flight ? levelProgress(flight.serverMultiplier, flight.thresholds) * LIFT_PER_LEVEL : 0),
-    [flight],
-  )
+  const altitude = useMemo(() => {
+    if (!flight || !flight.thresholds.length) return 0
+    return Math.min(1, levelProgress(flight.serverMultiplier, flight.thresholds) / flight.thresholds.length)
+  }, [flight])
 
   if (!flight) return null
 
@@ -104,7 +105,7 @@ export function FlightScreen() {
 
   return (
     <div className="screen">
-      <Scene theme={theme} lift={sceneLift} dimmed={flight.finished} />
+      <Scene theme={theme} altitude={altitude} dimmed={flight.finished} />
 
       <div className="screen-inner">
         <div className="topbar">
@@ -197,7 +198,7 @@ export function FlightScreen() {
               style={{
                 position: 'absolute',
                 left: '50%',
-                bottom: '6%',
+                bottom: '2%',
                 transform: 'translateX(-50%)',
               }}
             >
