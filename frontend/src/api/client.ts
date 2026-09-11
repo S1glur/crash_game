@@ -26,6 +26,10 @@ export const api = {
 
   config: () => request<GameConfig>('/api/config'),
 
+  /** Сохранение настроек из админки. Сервер валидирует значения сам. */
+  saveConfig: (config: unknown) =>
+    request<GameConfig>('/api/config', { method: 'PUT', body: JSON.stringify(config, null, 2) }),
+
   rules: () => request<{ content: string }>('/api/rules'),
 
   history: (limit = 20) => request<{ items: HistoryItem[] }>(`/api/history?limit=${limit}`),

@@ -215,3 +215,11 @@
     display: none !important;
   }
 }
+
+/* --- админка --- */
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px 16px;
+}

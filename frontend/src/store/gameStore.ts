@@ -52,6 +52,7 @@ interface GameStore {
 
   init: () => Promise<void>
   refreshHistory: () => Promise<void>
+  reloadConfig: () => Promise<void>
   setTheme: (theme: Theme) => void
   selectBet: (betOptionId: string | null) => void
   goToBet: () => void
@@ -101,6 +102,11 @@ export const useGame = create<GameStore>((set, get) => ({
     } catch (e) {
       set({ error: (e as Error).message, phase: 'theme' })
     }
+  },
+
+  /** Перечитать конфиг после сохранения в админке. */
+  async reloadConfig() {
+    set({ config: await api.config() })
   },
 
   async refreshHistory() {

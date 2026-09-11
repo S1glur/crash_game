@@ -6,6 +6,7 @@ import org.springframework.data.domain.Limit;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -183,6 +184,16 @@ public class GameController {
     @GetMapping(value = "/config", produces = "application/json")
     public String config() {
         return configService.rawJson();
+    }
+
+    /**
+     * Сохранение конфигурации из админки: валидация значений и запись в файл.
+     * Применяется со следующего раунда — так эксперт меняет экономику игры,
+     * не трогая ни код, ни файлы на диске (обязательный сценарий 5).
+     */
+    @PutMapping(value = "/config", consumes = "application/json", produces = "application/json")
+    public String updateConfig(@RequestBody String rawJson) {
+        return configService.save(rawJson);
     }
 
     /**
