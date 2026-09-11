@@ -1,0 +1,34 @@
+{
+  "_comment": "Демо-аккаунты, создаются при первом запуске сервера. Пароли хранятся здесь открытым текстом намеренно: это прототип, и логины нужны экспертам для проверки (см. README). В базу они попадают уже в виде bcrypt-хеша. Файл НЕ отдаётся через API, в отличие от game.json.",
+
+  "accounts": [
+    {
+      "username": "admin",
+      "password": "admin123",
+      "display_name": "Администратор",
+      "role": "ADMIN",
+      "balance": 100000
+    },
+    {
+      "username": "vip",
+      "password": "vip12345",
+      "display_name": "Крупный игрок",
+      "role": "PLAYER",
+      "balance": 50000
+    },
+    {
+      "username": "player1",
+      "password": "player123",
+      "display_name": "Игрок 1",
+      "role": "PLAYER",
+      "balance": 1000
+    },
+    {
+      "username": "player2",
+      "password": "player123",
+      "display_name": "Игрок 2",
+      "role": "PLAYER",
+      "balance": 1000
+    }
+  ]
+}

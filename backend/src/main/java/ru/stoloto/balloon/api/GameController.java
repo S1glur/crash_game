@@ -13,11 +13,15 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import ru.stoloto.balloon.config.GameConfig;
 import ru.stoloto.balloon.config.GameConfigService;
+import ru.stoloto.balloon.domain.PlayerEntity;
+import ru.stoloto.balloon.domain.PlayerRepository;
 import ru.stoloto.balloon.domain.RoundEntity;
 import ru.stoloto.balloon.domain.RoundRepository;
 import ru.stoloto.balloon.game.ActiveRound;
+import ru.stoloto.balloon.game.LeaderboardService;
 import ru.stoloto.balloon.game.RoundPersistence;
 import ru.stoloto.balloon.game.RoundService;
+import ru.stoloto.balloon.security.CurrentPlayer;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -25,11 +29,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** REST-часть контракта из docs/api.md. */
+/** REST-часть контракта из docs/api.md. Все операции идут от имени вошедшего игрока. */
 @RestController
 @RequestMapping("/api")
 public class GameController {
@@ -38,23 +43,36 @@ public class GameController {
     private final RoundPersistence persistence;
     private final GameConfigService configService;
     private final RoundRepository roundRepository;
+    private final PlayerRepository playerRepository;
+    private final CurrentPlayer currentPlayer;
+    private final LeaderboardService leaderboardService;
     private final Path rulesPath;
 
     public GameController(RoundService roundService,
                           RoundPersistence persistence,
                           GameConfigService configService,
                           RoundRepository roundRepository,
+                          PlayerRepository playerRepository,
+                          CurrentPlayer currentPlayer,
+                          LeaderboardService leaderboardService,
                           @Value("${game.rules-path}") String rulesPath) {
         this.roundService = roundService;
         this.persistence = persistence;
         this.configService = configService;
         this.roundRepository = roundRepository;
+        this.playerRepository = playerRepository;
+        this.currentPlayer = currentPlayer;
+        this.leaderboardService = leaderboardService;
         this.rulesPath = Paths.get(rulesPath).toAbsolutePath().normalize();
     }
 
-    /** Стартовое состояние при загрузке фронта. */
+    /**
+     * Стартовое состояние при загрузке фронта. Отвечает 401, если сессии нет —
+     * по этому ответу фронт понимает, что нужно показать экран входа.
+     */
     @GetMapping("/state")
     public Map<String, Object> state() {
+        PlayerEntity player = currentPlayer.require();
         GameConfig config = configService.get();
 
         Map<String, Object> levelsCount = new LinkedHashMap<>();
@@ -81,10 +99,11 @@ public class GameController {
         stake.put("step", limits.step());
         stake.put("presets", limits.presets());
 
-        ActiveRound active = roundService.currentActive();
+        ActiveRound active = roundService.currentActive(player.getId());
 
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("balance", persistence.player().getBalance());
+        body.put("user", userView(player));
+        body.put("balance", player.getBalance());
         body.put("theme", config.themes().containsKey("green") ? "green" : config.themes().keySet().iterator().next());
         body.put("activeRound", active == null ? null : activeRoundView(active));
         body.put("stake", stake);
@@ -112,19 +131,31 @@ public class GameController {
         }
     }
 
-    /** История завершённых раундов всех пользователей прототипа. */
+    /**
+     * История завершённых раундов всех участников прототипа — этого требует
+     * сценарий 1. Имя игрока идёт вместе с раундом: без него в общей истории
+     * не отличить свой полёт от чужого.
+     */
     @GetMapping("/history")
     public Map<String, Object> history(@RequestParam(defaultValue = "20") int limit) {
+        currentPlayer.require();
+
+        Map<String, String> names = new HashMap<>();
+        playerRepository.findAll().forEach(player -> names.put(player.getId(), player.getDisplayName()));
+
         List<Map<String, Object>> items = new ArrayList<>();
         for (RoundEntity entity : roundRepository.findAllByOrderByFinishedAtDesc(Limit.of(limit))) {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("roundId", entity.getRoundId());
+            item.put("playerId", entity.getPlayerId());
+            item.put("player", names.getOrDefault(entity.getPlayerId(), "—"));
             item.put("theme", entity.getTheme());
             item.put("stake", entity.getStake());
             item.put("totalPaid", entity.getTotalPaid());
             item.put("result", entity.getOutcome());
             item.put("multiplier", entity.getOutcome().equals("cashout")
                     ? entity.getCashedOutAt() : entity.getCrashAt());
+            item.put("winAmount", entity.getWinAmount());
             item.put("points", entity.getPoints());
             item.put("finishedAt", entity.getFinishedAt().toString());
             items.add(item);
@@ -133,27 +164,29 @@ public class GameController {
     }
 
     /**
-     * Пополнение баланса демо-игрока до стартового значения из конфига.
+     * Пополнение баланса до стартового значения из конфига.
      *
      * ТЗ: «демо-пользователь с ненулевым балансом ИЛИ сценарий его пополнения» —
      * эксперт должен пройти все сценарии сам. Проиграв баланс до суммы меньше
-     * самой дешёвой ставки, он без этого упирается в тупик, из которого выводит
+     * минимальной ставки, он без этого упирается в тупик, из которого выводит
      * только перезапуск сервера.
      */
     @PostMapping("/demo/topup")
     public Map<String, Object> topUp() {
-        int credited = persistence.topUpToStart();
+        PlayerEntity player = currentPlayer.require();
+        int credited = persistence.topUpToStart(player.getId());
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("credited", credited);
-        body.put("balance", persistence.player().getBalance());
+        body.put("balance", persistence.player(player.getId()).getBalance());
         return body;
     }
 
     /** Старт раунда: списывает ставку, отдаёт id раунда и provably-fair хеш. */
     @PostMapping("/round/start")
     public Map<String, Object> startRound(@RequestBody StartRequest request) {
+        PlayerEntity player = currentPlayer.require();
         ActiveRound round = roundService.start(
-                request.theme(), request.stake(), request.boostOptionId(), request.seed(),
+                player, request.theme(), request.stake(), request.boostOptionId(), request.seed(),
                 request.speedFactor(), request.autoCashoutAt());
 
         GameConfig config = configService.get();
@@ -172,14 +205,15 @@ public class GameController {
         body.put("boostLevelIndex", round.outcome().boostLevelIndex());
         body.put("autoCashoutAt", round.autoCashoutAt());
         body.put("resultHash", round.outcome().hash());
-        body.put("balanceAfter", persistence.player().getBalance());
+        body.put("balanceAfter", persistence.player(player.getId()).getBalance());
         return body;
     }
 
     /** Фиксация выигрыша по текущему серверному коэффициенту. */
     @PostMapping("/round/{roundId}/cashout")
     public Map<String, Object> cashout(@PathVariable String roundId) {
-        ActiveRound round = roundService.cashout(roundId);
+        PlayerEntity player = currentPlayer.require();
+        ActiveRound round = roundService.cashout(player.getId(), roundId);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("roundId", round.roundId());
         body.put("cashedOutAt", RoundService.round2(round.cashedOutAt()));
@@ -191,8 +225,14 @@ public class GameController {
     /** Итог завершённого раунда — экран результата берёт данные отсюда. */
     @GetMapping("/round/{roundId}")
     public Map<String, Object> roundResult(@PathVariable String roundId) {
+        PlayerEntity player = currentPlayer.require();
         RoundEntity entity = roundRepository.findById(roundId)
                 .orElseThrow(() -> new ApiException("ROUND_NOT_ACTIVE", "Раунд не найден: " + roundId));
+
+        // Чужой раунд виден только администратору — он же разбирает спорные случаи.
+        if (!entity.getPlayerId().equals(player.getId()) && !player.isAdmin()) {
+            throw new ApiException("ROUND_NOT_ACTIVE", "Раунд не найден: " + roundId);
+        }
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("roundId", entity.getRoundId());
@@ -206,7 +246,7 @@ public class GameController {
         body.put("winAmount", entity.getWinAmount());
         body.put("points", entity.getPoints());
         body.put("reward", Map.of("type", entity.getRewardType(), "id", entity.getRewardId()));
-        body.put("balance", persistence.player().getBalance());
+        body.put("balance", persistence.player(entity.getPlayerId()).getBalance());
 
         // Provably fair: всё, что нужно игроку, чтобы пересчитать resultHash самому.
         // Строка для проверки: sha256(crashPointRaw|boostLevelIndex|serverSeed).
@@ -217,7 +257,17 @@ public class GameController {
         return body;
     }
 
-    /** Текущая конфигурация — для админки. */
+    /**
+     * Турнирная таблица: первый снимок при загрузке страницы. Дальше она
+     * приходит сама по /topic/leaderboard, без опроса сервера.
+     */
+    @GetMapping("/leaderboard")
+    public Map<String, Object> leaderboard() {
+        currentPlayer.require();
+        return Map.of("rows", leaderboardService.rows(roundService.inFlightPoints()));
+    }
+
+    /** Текущая конфигурация — для админки и инфографики на экране ставки. */
     @GetMapping(value = "/config", produces = "application/json")
     public String config() {
         return configService.rawJson();
@@ -227,10 +277,23 @@ public class GameController {
      * Сохранение конфигурации из админки: валидация значений и запись в файл.
      * Применяется со следующего раунда — так эксперт меняет экономику игры,
      * не трогая ни код, ни файлы на диске (обязательный сценарий 5).
+     *
+     * Доступ только у роли ADMIN — правило задано в SecurityConfig.
      */
     @PutMapping(value = "/config", consumes = "application/json", produces = "application/json")
     public String updateConfig(@RequestBody String rawJson) {
         return configService.save(rawJson);
+    }
+
+    private static Map<String, Object> userView(PlayerEntity player) {
+        Map<String, Object> view = new LinkedHashMap<>();
+        view.put("id", player.getId());
+        view.put("username", player.getUsername());
+        view.put("displayName", player.getDisplayName());
+        view.put("role", player.getRole());
+        view.put("balance", player.getBalance());
+        view.put("totalPoints", player.getTotalPoints());
+        return view;
     }
 
     /**

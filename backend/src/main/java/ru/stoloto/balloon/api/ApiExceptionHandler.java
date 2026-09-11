@@ -15,7 +15,10 @@ public class ApiExceptionHandler {
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<Map<String, String>> handle(ApiException e) {
         HttpStatus status = switch (e.getCode()) {
-            case "ROUND_NOT_ACTIVE", "ALREADY_CASHED_OUT" -> HttpStatus.CONFLICT;
+            case "ROUND_NOT_ACTIVE", "ROUND_ALREADY_ACTIVE", "ALREADY_CASHED_OUT",
+                 "USERNAME_TAKEN" -> HttpStatus.CONFLICT;
+            case "UNAUTHORIZED", "INVALID_CREDENTIALS" -> HttpStatus.UNAUTHORIZED;
+            case "FORBIDDEN" -> HttpStatus.FORBIDDEN;
             default -> HttpStatus.BAD_REQUEST;
         };
         return ResponseEntity.status(status)

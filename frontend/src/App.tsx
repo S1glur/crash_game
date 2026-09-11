@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react'
 import { AdminModal } from './components/AdminModal'
 import { LeaderboardModal } from './components/LeaderboardModal'
 import { RulesModal } from './components/RulesModal'
+import { AuthScreen } from './screens/AuthScreen'
 import { BetScreen } from './screens/BetScreen'
 import { FlightScreen } from './screens/FlightScreen'
+import { ReportScreen } from './screens/ReportScreen'
 import { ResultScreen } from './screens/ResultScreen'
 import { ThemeScreen } from './screens/ThemeScreen'
 import { useGame } from './store/gameStore'
@@ -33,6 +35,7 @@ export default function App() {
   return (
     <>
       {phase === 'loading' && <Loading />}
+      {phase === 'auth' && <AuthScreen />}
       {phase === 'theme' && <ThemeScreen />}
       {phase === 'bet' && (
         <BetScreen
@@ -42,8 +45,11 @@ export default function App() {
       )}
       {phase === 'flight' && <FlightScreen />}
       {phase === 'result' && <ResultScreen />}
+      {phase === 'report' && <ReportScreen />}
 
-      {phase !== 'loading' && <SoundToggle onOpenAdmin={() => setAdminOpen(true)} />}
+      {phase !== 'loading' && phase !== 'auth' && (
+        <CornerControls onOpenAdmin={() => setAdminOpen(true)} />
+      )}
 
       {rulesOpen && <RulesModal onClose={() => setRulesOpen(false)} />}
       {leaderboardOpen && <LeaderboardModal onClose={() => setLeaderboardOpen(false)} />}
@@ -98,12 +104,17 @@ function Loading() {
 }
 
 /**
- * Переключатель звука. Нужен не только для удобства: на защите проектор
- * обычно уже со звуком, и возможность быстро приглушить игру важнее, чем
- * кажется. Состояние переживает перезагрузку через localStorage.
+ * Постоянный угол управления: аккаунт, настройки игры и звук.
+ *
+ * Звук вынесен сюда не только для удобства: на защите проектор обычно уже со
+ * звуком, и возможность быстро приглушить игру важнее, чем кажется. Состояние
+ * переживает перезагрузку через localStorage.
  */
-function SoundToggle({ onOpenAdmin }: { onOpenAdmin: () => void }) {
+function CornerControls({ onOpenAdmin }: { onOpenAdmin: () => void }) {
   const [muted, setMuted] = useState(sound.muted)
+  const user = useGame((s) => s.user)
+  const logout = useGame((s) => s.logout)
+  const openReport = useGame((s) => s.openReport)
 
   const buttonStyle: React.CSSProperties = {
     width: 38,
@@ -122,21 +133,60 @@ function SoundToggle({ onOpenAdmin }: { onOpenAdmin: () => void }) {
         bottom: 16,
         zIndex: 40,
         display: 'flex',
+        alignItems: 'center',
         gap: 8,
       }}
     >
+      {user && (
+        <span className="chip chip-sm" title={`Вы вошли как ${user.username}`}>
+          <span style={{ color: 'var(--amber)' }}>{user.displayName}</span>
+          {user.role === 'ADMIN' && <span style={{ opacity: 0.5 }}>админ</span>}
+        </span>
+      )}
+
       <button
         className="chip"
-        onClick={onOpenAdmin}
-        title="Параметры игры (админка)"
-        aria-label="Параметры игры"
+        onClick={() => void logout()}
+        title="Выйти из аккаунта"
+        aria-label="Выйти из аккаунта"
         style={buttonStyle}
       >
+        <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
+          <path d="M12.5 6.5V4.2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v11.6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V13.5" strokeLinecap="round" />
+          <path d="M8.5 10h8m0 0-2.4-2.4M16.5 10l-2.4 2.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {/* Отчётность и экономика игры — только администратору; сервер всё равно откажет остальным. */}
+      {user?.role === 'ADMIN' && (
+        <button
+          className="chip"
+          onClick={openReport}
+          title="Отчётность"
+          aria-label="Отчётность"
+          style={buttonStyle}
+        >
+          <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7">
+            <path d="M3 16.5h14" strokeLinecap="round" />
+            <path d="M5.5 16.5v-5M9.2 16.5V5.5M12.9 16.5v-7.5M16.5 16.5v-3.5" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
+
+      {user?.role === 'ADMIN' && (
+        <button
+          className="chip"
+          onClick={onOpenAdmin}
+          title="Параметры игры (админка)"
+          aria-label="Параметры игры"
+          style={buttonStyle}
+        >
         <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
           <circle cx="10" cy="10" r="2.6" />
           <path d="M10 2.4v2M10 15.6v2M17.6 10h-2M4.4 10h-2M15.4 4.6l-1.4 1.4M6 14l-1.4 1.4M15.4 15.4L14 14M6 6L4.6 4.6" strokeLinecap="round" />
         </svg>
-      </button>
+        </button>
+      )}
 
       <button
         className="chip"

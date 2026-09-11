@@ -25,6 +25,15 @@
 <body>
 <h1>Тест игрового цикла без фронтенда</h1>
 
+<!-- Страница открывается на 8080, а игра в разработке живёт на 5173 — сессия
+     с другого порта сюда не переносится, поэтому нужен собственный вход. -->
+<div class="row">
+  <label>Логин <input id="username" size="10" value="player1"></label>
+  <label>Пароль <input id="password" size="10" type="password" value="player123"></label>
+  <button id="login">Войти</button>
+  <span id="who">не авторизован</span>
+</div>
+
 <div class="row">
   <label>Тема
     <select id="theme">
@@ -57,6 +66,36 @@
   const multiplierEl = document.getElementById('multiplier');
   const startBtn = document.getElementById('start');
   const cashoutBtn = document.getElementById('cashout');
+  const whoEl = document.getElementById('who');
+
+  async function whoAmI() {
+    const response = await fetch('/api/auth/me');
+    if (!response.ok) {
+      whoEl.textContent = 'не авторизован';
+      return;
+    }
+    const user = await response.json();
+    whoEl.textContent = `${user.displayName} · баланс ${user.balance}`;
+  }
+
+  document.getElementById('login').addEventListener('click', async () => {
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: document.getElementById('username').value,
+        password: document.getElementById('password').value,
+      }),
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      whoEl.textContent = body?.message ?? 'ошибка входа';
+      return;
+    }
+    whoEl.textContent = `${body.displayName} · баланс ${body.balance}`;
+  });
+
+  whoAmI();
 
   let client = null;
   let subscription = null;

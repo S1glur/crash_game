@@ -15,6 +15,7 @@ import ru.stoloto.balloon.domain.PlayerRepository;
 import ru.stoloto.balloon.domain.RoundEntity;
 import ru.stoloto.balloon.domain.RoundRepository;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
@@ -31,13 +32,16 @@ import java.util.concurrent.atomic.AtomicLong;
 public class RoundService {
 
     private static final Logger log = LoggerFactory.getLogger(RoundService.class);
-    public static final String DEMO_PLAYER_ID = "guest";
+
+    /** Лента завершённых раундов всех участников — общая на всех. */
+    public static final String FEED_TOPIC = "/topic/feed";
 
     private final GameConfigService configService;
     private final SimpMessagingTemplate messaging;
     private final RoundRepository roundRepository;
     private final PlayerRepository playerRepository;
     private final RoundPersistence persistence;
+    private final LeaderboardService leaderboard;
 
     private final Map<String, ActiveRound> activeRounds = new ConcurrentHashMap<>();
     private final AtomicLong roundCounter = new AtomicLong();
@@ -49,12 +53,33 @@ public class RoundService {
                         SimpMessagingTemplate messaging,
                         RoundRepository roundRepository,
                         PlayerRepository playerRepository,
-                        RoundPersistence persistence) {
+                        RoundPersistence persistence,
+                        LeaderboardService leaderboard) {
         this.configService = configService;
         this.messaging = messaging;
         this.roundRepository = roundRepository;
         this.playerRepository = playerRepository;
         this.persistence = persistence;
+        this.leaderboard = leaderboard;
+    }
+
+    /**
+     * Очки незавершённых раундов по игрокам — вторая половина живого рейтинга.
+     * Накопленные очки лежат в аккаунте, а эти существуют только в памяти, пока
+     * шар в воздухе.
+     */
+    public Map<String, Integer> inFlightPoints() {
+        Map<String, Integer> points = new HashMap<>();
+        for (ActiveRound round : activeRounds.values()) {
+            if (!round.isFinished()) {
+                points.merge(round.playerId(), round.points(), Integer::sum);
+            }
+        }
+        return points;
+    }
+
+    private void publishLeaderboard() {
+        leaderboard.broadcast(inFlightPoints());
     }
 
     @PostConstruct
@@ -83,9 +108,15 @@ public class RoundService {
      * остаются на сервере до завершения полёта.
      */
     @Transactional
-    public ActiveRound start(String theme, int stake, String boostOptionId, Long seed,
-                             Double speedFactor, Double autoCashoutAt) {
+    public ActiveRound start(PlayerEntity player, String theme, int stake, String boostOptionId,
+                             Long seed, Double speedFactor, Double autoCashoutAt) {
         GameConfig config = configService.get();
+
+        // Двойной клик по «Начать» иначе списывает ставку дважды и оставляет
+        // игрока с двумя полётами, из которых экран показывает только один.
+        if (currentActive(player.getId()) != null) {
+            throw new ApiException("ROUND_ALREADY_ACTIVE", "Предыдущий раунд ещё не завершён");
+        }
 
         GameConfig.Theme themeConfig;
         try {
@@ -115,7 +146,6 @@ public class RoundService {
         int boostFee = config.boostFee(option, stake);
         int totalPaid = stake + boostFee;
 
-        PlayerEntity player = persistence.player();
         if (player.getBalance() < totalPaid) {
             throw new ApiException("INSUFFICIENT_BALANCE", "Не хватает бонусов");
         }
@@ -141,13 +171,13 @@ public class RoundService {
 
         RoundOutcome outcome = RoundOutcome.generate(config, theme, option.boostTier(), effectiveSeed);
         String roundId = "r-" + roundCounter.incrementAndGet();
-        ActiveRound round = new ActiveRound(roundId, theme, stake, boostFee, option.boostTier(),
-                effectiveSpeed, outcome, config);
+        ActiveRound round = new ActiveRound(roundId, player.getId(), theme, stake, boostFee,
+                option.boostTier(), effectiveSpeed, outcome, config);
         round.setAutoCashoutAt(autoCashoutAt);
         activeRounds.put(roundId, round);
 
-        log.debug("Round {} started: theme={} stake={} fee={} boostTier={} crashPoint={} boostLevel={} seed={}",
-                roundId, theme, stake, boostFee, option.boostTier(),
+        log.debug("Round {} started by {}: theme={} stake={} fee={} boostTier={} crashPoint={} boostLevel={} seed={}",
+                roundId, player.getUsername(), theme, stake, boostFee, option.boostTier(),
                 outcome.crashPoint(), outcome.boostLevelIndex(), outcome.serverSeed());
 
         return round;
@@ -158,10 +188,19 @@ public class RoundService {
      * клиентское значение не принимается, иначе результат можно было бы подделать.
      */
     @Transactional
-    public ActiveRound cashout(String roundId) {
+    public ActiveRound cashout(String playerId, String roundId) {
         ActiveRound round = activeRounds.get(roundId);
         if (round == null || round.isFinished()) {
             throw new ApiException("ROUND_NOT_ACTIVE", "Раунд уже завершён");
+        }
+        /*
+          Идентификаторы раундов последовательны (r-1, r-2, …), поэтому без
+          проверки владельца чужой выигрыш забирался бы простым перебором.
+          Отвечаем как на несуществующий раунд, чтобы не подтверждать, что
+          такой раунд вообще есть.
+        */
+        if (!round.playerId().equals(playerId)) {
+            throw new ApiException("ROUND_NOT_ACTIVE", "Раунд не найден: " + roundId);
         }
         if (round.isCashedOut()) {
             throw new ApiException("ALREADY_CASHED_OUT", "Выигрыш уже зафиксирован");
@@ -185,7 +224,7 @@ public class RoundService {
             return false;
         }
 
-        persistence.creditWin(round.winAmount());
+        persistence.creditWin(round.playerId(), round.winAmount());
 
         send("/topic/round/" + round.roundId(), Map.of(
                 "type", "cashout",
@@ -194,20 +233,23 @@ public class RoundService {
                 "points", round.points(),
                 "auto", auto));
 
+        // Бонус за вывод — тоже очки, таблица должна о нём узнать.
+        publishLeaderboard();
+
         log.debug("Round {} cashout{} at {} -> win {} points {}",
                 round.roundId(), auto ? " (auto)" : "", round.cashedOutAt(),
                 round.winAmount(), round.points());
         return true;
     }
 
-    public ActiveRound active(String roundId) {
-        return activeRounds.get(roundId);
-    }
-
-    /** Раунд, который сейчас летит — для восстановления состояния после перезагрузки страницы. */
-    public ActiveRound currentActive() {
+    /**
+     * Летящий раунд этого игрока — для восстановления экрана после перезагрузки
+     * страницы. Фильтр по владельцу обязателен: иначе игрок попадал бы в чужой
+     * полёт, когда в игре одновременно несколько человек.
+     */
+    public ActiveRound currentActive(String playerId) {
         return activeRounds.values().stream()
-                .filter(round -> !round.isFinished())
+                .filter(round -> !round.isFinished() && round.playerId().equals(playerId))
                 .findFirst()
                 .orElse(null);
     }
@@ -231,8 +273,10 @@ public class RoundService {
         String topic = "/topic/round/" + round.roundId();
 
         // 1. Пересечённые уровни (за один тик их может быть больше одного).
+        boolean pointsChanged = false;
         Double next;
         while ((next = round.nextThreshold()) != null && round.baseMultiplier() >= next) {
+            pointsChanged = true;
             int levelIndex = round.levelsCrossed();
             int awarded = round.crossLevel();
             send(topic, Map.of(
@@ -241,17 +285,29 @@ public class RoundService {
                     "pointsAwarded", awarded,
                     "totalPoints", round.points()));
 
-            // 2. Бустер на этом уровне — только если игрок ещё не забрал выигрыш.
-            if (levelIndex == round.outcome().boostLevelIndex()
-                    && !round.isCashedOut() && !round.boostApplied()) {
+            /*
+              2. Бустер на этом уровне. Решение принимает сам applyBoost под
+              своим замком — проверять «не забрал ли игрок выигрыш» здесь
+              нельзя: между проверкой и применением успевает вклиниться
+              cashout, и событие ушло бы игроку, не попав в выплату.
+            */
+            if (levelIndex == round.outcome().boostLevelIndex()) {
                 double boostValue = configService.get().boostValue(round.boostTier());
-                round.applyBoost(boostValue);
-                send(topic, Map.of(
-                        "type", "boost",
-                        "levelIndex", levelIndex,
-                        "boostMultiplier", boostValue,
-                        "multiplierAfter", round2(round.effectiveMultiplier())));
+                if (round.applyBoost(boostValue)) {
+                    send(topic, Map.of(
+                            "type", "boost",
+                            "levelIndex", levelIndex,
+                            "boostMultiplier", boostValue,
+                            "multiplierAfter", round2(round.effectiveMultiplier())));
+                }
             }
+        }
+
+        // Очки выросли — значит игрок мог сдвинуться в турнирной таблице.
+        // Рассылаем сразу: ТЗ требует, чтобы позиция менялась во время полёта,
+        // а не после краха.
+        if (pointsChanged) {
+            publishLeaderboard();
         }
 
         // 3. Автовывод — проверяем до краха: если игрок выставил порог и шар его
@@ -294,6 +350,26 @@ public class RoundService {
                 "serverSeed", String.valueOf(saved.getServerSeed())));
 
         activeRounds.remove(round.roundId());
+
+        /*
+          Общая лента: завершённый раунд виден всем, кто сейчас в игре, — у них
+          история на экране ставки обновляется без перезагрузки страницы.
+          Имя берём из аккаунта, иначе в ленте были бы безымянные строки.
+        */
+        messaging.convertAndSend(FEED_TOPIC, (Object) Map.of(
+                "roundId", round.roundId(),
+                "player", playerRepository.findById(round.playerId())
+                        .map(PlayerEntity::getDisplayName).orElse("—"),
+                "theme", round.theme(),
+                "stake", round.stake(),
+                "outcome", outcomeType,
+                "multiplier", round.isCashedOut() ? round2(round.cashedOutAt()) : crashAt,
+                "winAmount", round.winAmount(),
+                "points", round.points()));
+
+        // Очки раунда осели в аккаунте — пересобираем таблицу уже без них в полёте.
+        publishLeaderboard();
+
         log.debug("Round {} finished: {} crashAt={} win={} points={}",
                 round.roundId(), outcomeType, crashAt, round.winAmount(), round.points());
     }

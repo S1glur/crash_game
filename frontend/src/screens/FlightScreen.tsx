@@ -11,7 +11,6 @@ export function FlightScreen() {
   const theme = useGame((s) => s.theme)
   const balance = useGame((s) => s.balance)
   const config = useGame((s) => s.config)
-  const totalPoints = useGame((s) => s.totalPoints)
   const cashout = useGame((s) => s.cashout)
   const onboardingSeen = useGame((s) => s.onboardingSeen)
   const markOnboardingSeen = useGame((s) => s.markOnboardingSeen)
@@ -23,6 +22,7 @@ export function FlightScreen() {
 
   const growthRate = config?.crash_model.multiplier_growth_rate ?? 0.06
   const accelBase = config?.crash_model.growth_acceleration_base ?? 1.12
+  const maxMultiplier = config?.crash_model.max_multiplier ?? 50
   const pointsPerLine = config?.points.points_per_line ?? 10
 
   /**
@@ -35,6 +35,13 @@ export function FlightScreen() {
    * нуля, а от момента, в котором раунд сейчас находится: мгновенная скорость
    * в точке t равна growthRate · accelBase^t, и её мы применяем к промежутку
    * до следующего тика.
+   *
+   * Достроенное значение обязательно ограничиваем потолком модели. Экстраполяция
+   * верна только пока тики приходят; если сервер замолчал, она разгоняется до
+   * бессмысленных величин — так на экране однажды оказался коэффициент 883 947
+   * при непройденном первом уровне. Выше max_multiplier шар не улетает никогда,
+   * значит и показывать больше нельзя. Вернуть экран к правде — задача сторожа
+   * в gameStore, потолок лишь не даёт врать заметно.
    */
   useEffect(() => {
     let frame = 0
@@ -44,16 +51,17 @@ export function FlightScreen() {
         const sinceTick = (performance.now() - current.serverMultiplierAt) / 1000
         const roundTime = current.serverElapsedMs / 1000 + sinceTick
         const rate = growthRate * Math.pow(accelBase, roundTime)
+        const ceiling = maxMultiplier * (current.boostApplied ? current.boostMultiplier : 1)
         const projected = current.finished
           ? current.serverMultiplier
-          : current.serverMultiplier * Math.exp(rate * sinceTick)
+          : Math.min(ceiling, current.serverMultiplier * Math.exp(rate * sinceTick))
         setMultiplier(projected)
       }
       frame = requestAnimationFrame(loop)
     }
     frame = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(frame)
-  }, [growthRate, accelBase])
+  }, [growthRate, accelBase, maxMultiplier])
 
   useEffect(() => {
     if (!showHint) return
@@ -121,7 +129,7 @@ export function FlightScreen() {
           </span>
 
           <div className="grow wide-only" style={{ display: 'flex', justifyContent: 'center' }}>
-            <LeaderStrip points={totalPoints + flight.points} />
+            <LeaderStrip />
           </div>
           <div className="grow" />
 

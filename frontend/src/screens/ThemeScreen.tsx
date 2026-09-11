@@ -3,7 +3,6 @@ import { Scene } from '../components/Scene'
 import { useGame } from '../store/gameStore'
 import type { Theme } from '../api/types'
 import { fmtInt, fmtMult } from '../utils/format'
-import { leaderboard, playerPlace } from '../utils/leaderboard'
 
 export function ThemeScreen() {
   const balance = useGame((s) => s.balance)
@@ -13,8 +12,10 @@ export function ThemeScreen() {
   const setTheme = useGame((s) => s.setTheme)
   const goToBet = useGame((s) => s.goToBet)
   const totalPoints = useGame((s) => s.totalPoints)
+  const leaders = useGame((s) => s.leaders)
+  const userId = useGame((s) => s.user?.id)
 
-  const rows = leaderboard(totalPoints, 0)
+  const place = leaders.find((row) => row.playerId === userId)?.place
 
   const choose = (theme: Theme) => {
     setTheme(theme)
@@ -121,7 +122,8 @@ export function ThemeScreen() {
           </span>
           <div className="grow" />
           <TournamentStat value={fmtInt(totalPoints)} caption="ваши очки" />
-          <TournamentStat value={`${playerPlace(rows)}-е`} caption="место" />
+          <TournamentStat value={place ? `${place}-е` : '—'} caption="место" />
+          <TournamentStat value={String(leaders.length)} caption="участников" />
           <TournamentStat value="25" caption="дней до конца" accent />
         </div>
       </div>

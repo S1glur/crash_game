@@ -15,6 +15,10 @@ public class RoundEntity {
     @Id
     private String roundId;
 
+    /** Владелец раунда. Без него история общая и обезличенная. */
+    @Column(nullable = false)
+    private String playerId;
+
     private String theme;
 
     /** Ставка — только от неё считается выигрыш. */
@@ -54,11 +58,12 @@ public class RoundEntity {
         // для JPA
     }
 
-    public RoundEntity(String roundId, String theme, int stake, int boostFee, String outcome,
-                       Double cashedOutAt, double crashAt, int winAmount, int points, int boostTier,
-                       boolean boostApplied, String rewardId, String rewardType, String resultHash,
-                       long serverSeed, double crashPointRaw, int boostLevelIndex) {
+    public RoundEntity(String roundId, String playerId, String theme, int stake, int boostFee,
+                       String outcome, Double cashedOutAt, double crashAt, int winAmount, int points,
+                       int boostTier, boolean boostApplied, String rewardId, String rewardType,
+                       String resultHash, long serverSeed, double crashPointRaw, int boostLevelIndex) {
         this.roundId = roundId;
+        this.playerId = playerId;
         this.theme = theme;
         this.stake = stake;
         this.boostFee = boostFee;
@@ -79,6 +84,7 @@ public class RoundEntity {
     }
 
     public String getRoundId() { return roundId; }
+    public String getPlayerId() { return playerId; }
     public String getTheme() { return theme; }
     public int getStake() { return stake; }
     public int getBoostFee() { return boostFee; }

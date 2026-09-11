@@ -7,6 +7,12 @@ import java.util.List;
 
 public interface RoundRepository extends JpaRepository<RoundEntity, String> {
 
-    /** История игр — свежие первыми (пункт сценария 1). */
+    /**
+     * История игр всех участников прототипа — свежие первыми.
+     * Общая, а не персональная: этого прямо требует сценарий 1 из ТЗ.
+     */
     List<RoundEntity> findAllByOrderByFinishedAtDesc(Limit limit);
+
+    /** История одного игрока — для личной статистики. */
+    List<RoundEntity> findAllByPlayerIdOrderByFinishedAtDesc(String playerId, Limit limit);
 }

@@ -2,6 +2,7 @@ package ru.stoloto.balloon.game;
 
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import ru.stoloto.balloon.api.ApiException;
 import ru.stoloto.balloon.config.GameConfig;
 import ru.stoloto.balloon.config.GameConfigService;
 import ru.stoloto.balloon.domain.PlayerEntity;
@@ -13,6 +14,10 @@ import ru.stoloto.balloon.domain.RoundRepository;
  * Запись в БД вынесена отдельным бином намеренно: завершение раунда происходит
  * в потоке планировщика, а @Transactional работает только через прокси Spring —
  * при вызове метода изнутри того же класса транзакция бы не открылась.
+ *
+ * По той же причине методы принимают идентификатор игрока, а не саму сущность:
+ * в потоке планировщика нет ни сессии, ни контекста безопасности, откуда её
+ * можно было бы взять.
  */
 @Component
 public class RoundPersistence {
@@ -29,21 +34,17 @@ public class RoundPersistence {
         this.configService = configService;
     }
 
-    /** Демо-игрок; создаётся при первом обращении с балансом из конфига. */
-    @Transactional
-    public PlayerEntity player() {
-        return playerRepository.findById(RoundService.DEMO_PLAYER_ID).orElseGet(() -> {
-            GameConfig config = configService.get();
-            return playerRepository.save(new PlayerEntity(
-                    RoundService.DEMO_PLAYER_ID, config.demoUser().startingBalance()));
-        });
+    @Transactional(readOnly = true)
+    public PlayerEntity player(String playerId) {
+        return playerRepository.findById(playerId)
+                .orElseThrow(() -> new ApiException("UNAUTHORIZED", "Аккаунт не найден"));
     }
 
     /**
-     * Пополнение демо-баланса до стартового значения из конфига.
+     * Пополнение баланса до стартового значения из конфига.
      *
      * ТЗ требует, чтобы эксперт прошёл все сценарии без обращения к команде.
-     * Проиграв баланс до суммы меньше самой дешёвой ставки, он иначе попадает
+     * Проиграв баланс до суммы меньше минимальной ставки, он иначе попадает
      * в тупик, из которого выводит только перезапуск сервера.
      *
      * Пополняем именно ДО стартового значения, а не прибавляем: так баланс не
@@ -52,8 +53,8 @@ public class RoundPersistence {
      * @return сколько начислено (0, если баланс и так не ниже стартового)
      */
     @Transactional
-    public int topUpToStart() {
-        PlayerEntity player = player();
+    public int topUpToStart(String playerId) {
+        PlayerEntity player = player(playerId);
         int missing = configService.get().demoUser().startingBalance() - player.getBalance();
         if (missing <= 0) {
             return 0;
@@ -68,8 +69,8 @@ public class RoundPersistence {
      * срабатывает в потоке планировщика, где транзакции нет.
      */
     @Transactional
-    public void creditWin(int amount) {
-        PlayerEntity player = player();
+    public void creditWin(String playerId, int amount) {
+        PlayerEntity player = player(playerId);
         player.deposit(amount);
         playerRepository.save(player);
     }
@@ -79,6 +80,7 @@ public class RoundPersistence {
                             GameConfig.Reward reward) {
         RoundEntity entity = new RoundEntity(
                 round.roundId(),
+                round.playerId(),
                 round.theme(),
                 round.stake(),
                 round.boostFee(),
@@ -98,7 +100,7 @@ public class RoundPersistence {
 
         roundRepository.save(entity);
 
-        PlayerEntity player = player();
+        PlayerEntity player = player(round.playerId());
         player.addPoints(round.points());
         playerRepository.save(player);
 

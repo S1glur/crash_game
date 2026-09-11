@@ -20,6 +20,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class ActiveRound {
 
     private final String roundId;
+    /** Кому принадлежит полёт: у каждого игрока свой шар и своя точка краха. */
+    private final String playerId;
     private final String theme;
     private final int stake;
     private final int boostFee;
@@ -43,9 +45,10 @@ public class ActiveRound {
     private volatile int winAmount = 0;
     private final AtomicBoolean finished = new AtomicBoolean(false);
 
-    public ActiveRound(String roundId, String theme, int stake, int boostFee, int boostTier,
-                       double speedFactor, RoundOutcome outcome, GameConfig config) {
+    public ActiveRound(String roundId, String playerId, String theme, int stake, int boostFee,
+                       int boostTier, double speedFactor, RoundOutcome outcome, GameConfig config) {
         this.roundId = roundId;
+        this.playerId = playerId;
         this.theme = theme;
         this.stake = stake;
         this.boostFee = boostFee;
@@ -97,19 +100,36 @@ public class ActiveRound {
         return baseMultiplier() >= outcome.crashPoint();
     }
 
-    /** Засчитывает переход на уровень, возвращает количество начисленных очков. */
-    public int crossLevel() {
+    /**
+     * Засчитывает переход на уровень, возвращает количество начисленных очков.
+     *
+     * synchronized по той же причине, что и cashout: очки начисляет поток
+     * игрового цикла, а читает и дополняет их REST-поток при «Забрать».
+     * Без общего замка одно из двух начислений терялось бы.
+     */
+    public synchronized int crossLevel() {
         levelsCrossed++;
         points += pointsConfig.pointsPerLine();
         return pointsConfig.pointsPerLine();
     }
 
-    /** Применяет бустер; после cashout не вызывается (бустер уже не действует). */
-    public int applyBoost(double boostValue) {
+    /**
+     * Применяет бустер. Возвращает false, если применять уже нечего:
+     * игрок успел забрать выигрыш, раунд завершён или бустер сработал раньше.
+     *
+     * Проверка обязана быть внутри замка вместе с самим применением. Иначе
+     * поток игрового цикла успевает убедиться, что cashout ещё не случился,
+     * и уже после этого REST-поток фиксирует выигрыш по boostFactor = 1.0 —
+     * на экране бустер вспыхивает, а в выплату не попадает.
+     */
+    public synchronized boolean applyBoost(double boostValue) {
+        if (cashedOutAt != null || finished.get() || boostApplied) {
+            return false;
+        }
         boostFactor = boostValue;
         boostApplied = true;
         points += pointsConfig.pointsBoostBonus();
-        return pointsConfig.pointsBoostBonus();
+        return true;
     }
 
     /**
@@ -157,6 +177,7 @@ public class ActiveRound {
     }
 
     public String roundId() { return roundId; }
+    public String playerId() { return playerId; }
     public String theme() { return theme; }
     public int stake() { return stake; }
     public int boostFee() { return boostFee; }

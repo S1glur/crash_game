@@ -28,8 +28,12 @@ public record GameConfig(
         DevMode devMode
 ) {
 
+    /**
+     * Баланс, с которым стартует новый аккаунт. Он же — цель пополнения
+     * POST /api/demo/topup, чтобы проигравшийся эксперт не застрял без баллов.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record DemoUser(String id, int startingBalance) {}
+    public record DemoUser(int startingBalance) {}
 
     /** Границы свободной ставки: игрок сам выбирает сумму внутри них. */
     @JsonIgnoreProperties(ignoreUnknown = true)

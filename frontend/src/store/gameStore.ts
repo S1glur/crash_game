@@ -1,17 +1,26 @@
 import { create } from 'zustand'
 import { api } from '../api/client'
-import { subscribeToRound } from '../api/roundSocket'
+import {
+  closeSocket,
+  connectSocket,
+  subscribeToFeed,
+  subscribeToLeaderboard,
+  subscribeToRound,
+} from '../api/roundSocket'
 import { sound } from '../utils/sound'
+import { ApiError } from '../api/types'
 import type {
   BoostOption,
   GameConfig,
   HistoryItem,
+  LeaderRow,
   RoundResult,
   StakeLimits,
   Theme,
+  User,
 } from '../api/types'
 
-export type Phase = 'loading' | 'theme' | 'bet' | 'flight' | 'result'
+export type Phase = 'loading' | 'auth' | 'theme' | 'bet' | 'flight' | 'result' | 'report'
 
 interface FlightState {
   roundId: string
@@ -45,6 +54,8 @@ interface FlightState {
 interface GameStore {
   phase: Phase
   error: string | null
+  /** Вошедший аккаунт. null — показываем экран входа. */
+  user: User | null
   balance: number
   theme: Theme
   stakeLimits: StakeLimits
@@ -52,6 +63,8 @@ interface GameStore {
   levelsCount: Record<Theme, number>
   config: GameConfig | null
   history: HistoryItem[]
+  /** Турнирная таблица всех участников — живая, приходит по WebSocket. */
+  leaders: LeaderRow[]
   /** Сумма ставки, выбранная игроком; переживает раунды. */
   stake: number
   selectedBoostId: string
@@ -68,6 +81,10 @@ interface GameStore {
   upsellShown: boolean
 
   init: () => Promise<void>
+  /** Бросают ApiError с текстом от сервера — форма входа показывает его рядом с полями. */
+  login: (username: string, password: string) => Promise<void>
+  register: (username: string, password: string, displayName: string) => Promise<void>
+  logout: () => Promise<void>
   refreshHistory: () => Promise<void>
   reloadConfig: () => Promise<void>
   setTheme: (theme: Theme) => void
@@ -76,6 +93,7 @@ interface GameStore {
   setAutoCashout: (value: number | null) => void
   goToBet: () => void
   goToTheme: () => void
+  openReport: () => void
   startRound: () => Promise<void>
   cashout: () => Promise<void>
   playAgain: () => void
@@ -93,9 +111,32 @@ interface GameStore {
 
 let unsubscribe: (() => void) | null = null
 
+/**
+ * Сторож молчащего сервера.
+ *
+ * Экран полёта достраивает коэффициент между тиками сам, и если события
+ * перестают приходить — оборвался сокет, раунд кончился раньше, чем оформилась
+ * подписка — он разгоняет число до бесконечности, а игрок остаётся в полёте,
+ * которого давно нет. Поэтому после паузы в тиках спрашиваем состояние у
+ * сервера напрямую по REST.
+ */
+let watchdog: number | null = null
+let resyncing = false
+
+const SILENCE_BEFORE_RESYNC_MS = 1500
+const WATCHDOG_INTERVAL_MS = 700
+
+function stopWatchdog() {
+  if (watchdog !== null) {
+    clearInterval(watchdog)
+    watchdog = null
+  }
+}
+
 export const useGame = create<GameStore>((set, get) => ({
   phase: 'loading',
   error: null,
+  user: null,
   balance: 0,
   theme: 'green',
   stakeLimits: { min: 10, max: 400, step: 5, presets: [] },
@@ -103,6 +144,7 @@ export const useGame = create<GameStore>((set, get) => ({
   levelsCount: { green: 9, red: 12 },
   config: null,
   history: [],
+  leaders: [],
   stake: 50,
   selectedBoostId: 'no-boost',
   autoCashout: null,
@@ -115,26 +157,50 @@ export const useGame = create<GameStore>((set, get) => ({
 
   async init() {
     try {
-      const [state, config, history] = await Promise.all([
-        api.state(),
-        api.config(),
-        api.history(20),
-      ])
-      set({
-        balance: state.balance,
-        theme: state.theme,
-        stakeLimits: state.stake,
-        boostOptions: state.boostOptions,
-        levelsCount: state.levelsCount,
-        config,
-        history: history.items,
-        // Стартовая ставка — первый пресет из конфига, иначе минимальная.
-        stake: state.stake.presets[0] ?? state.stake.min,
-        selectedBoostId: state.boostOptions[0]?.id ?? 'no-boost',
-        phase: 'theme',
-      })
+      await loadGame(set)
     } catch (e) {
-      set({ error: (e as Error).message, phase: 'theme' })
+      // Отсутствие сессии — не ошибка, а обычный первый заход на страницу.
+      if (e instanceof ApiError && e.status === 401) {
+        set({ phase: 'auth', user: null })
+        return
+      }
+      set({ error: (e as Error).message, phase: 'auth' })
+    }
+  },
+
+  async login(username, password) {
+    await api.login(username, password)
+    await loadGame(set)
+  },
+
+  async register(username, password, displayName) {
+    await api.register(username, password, displayName)
+    await loadGame(set)
+  },
+
+  async logout() {
+    unsubscribe?.()
+    unsubscribe = null
+    stopWatchdog()
+    closeSocket()
+    try {
+      await api.logout()
+    } finally {
+      // Чистим всё, что связано с аккаунтом: баланс, история и награды
+      // следующего вошедшего не должны начинаться с чужих значений.
+      set({
+        phase: 'auth',
+        user: null,
+        error: null,
+        balance: 0,
+        flight: null,
+        result: null,
+        history: [],
+        leaders: [],
+        totalPoints: 0,
+        rewards: [],
+        upsellShown: false,
+      })
     }
   },
 
@@ -190,6 +256,10 @@ export const useGame = create<GameStore>((set, get) => ({
     set({ phase: 'theme' })
   },
 
+  openReport() {
+    set({ phase: 'report' })
+  },
+
   async startRound() {
     const { theme, stake, selectedBoostId, autoCashout } = get()
     try {
@@ -224,6 +294,7 @@ export const useGame = create<GameStore>((set, get) => ({
       })
 
       unsubscribe?.()
+      startWatchdog(started.roundId, set, get)
       unsubscribe = subscribeToRound(started.roundId, (event) => {
         const flight = get().flight
         if (!flight || flight.roundId !== started.roundId) return
@@ -365,6 +436,122 @@ export const useGame = create<GameStore>((set, get) => ({
 }))
 
 /**
+ * Загрузка игры под текущей сессией. Вынесена отдельно, потому что нужна в трёх
+ * местах одинаково: при открытии страницы, после входа и после регистрации.
+ */
+async function loadGame(set: (partial: Partial<GameStore>) => void) {
+  const [state, config, history, leaderboard] = await Promise.all([
+    api.state(),
+    api.config(),
+    api.history(20),
+    api.leaderboard(),
+  ])
+
+  // Соединение поднимаем сразу, а не в момент старта раунда: иначе первый же
+  // короткий полёт заканчивается раньше, чем оно успевает установиться.
+  connectSocket()
+
+  /*
+    Общие каналы. Подписки идемпотентны — они хранятся по имени топика, поэтому
+    повторный вход в аккаунт не удваивает обработчики.
+
+    Таблица приходит готовой, с местами и очками: пересчитывать её на клиенте
+    нельзя, иначе у каждого будет свой вариант рейтинга.
+  */
+  subscribeToLeaderboard((rows) => set({ leaders: rows }))
+
+  // Чужой раунд завершился — обновляем историю игр. Она общая по ТЗ, и без
+  // этого чужие полёты появлялись бы в ней только после перезагрузки страницы.
+  subscribeToFeed(() => {
+    void useGame.getState().refreshHistory()
+  })
+
+  set({
+    user: state.user,
+    balance: state.balance,
+    theme: state.theme,
+    stakeLimits: state.stake,
+    boostOptions: state.boostOptions,
+    levelsCount: state.levelsCount,
+    config,
+    history: history.items,
+    leaders: leaderboard.rows,
+    // Очки берём с сервера: теперь они копятся в аккаунте, а не в сессии вкладки.
+    totalPoints: state.user.totalPoints,
+    // Стартовая ставка — первый пресет из конфига, иначе минимальная.
+    stake: state.stake.presets[0] ?? state.stake.min,
+    selectedBoostId: state.boostOptions[0]?.id ?? 'no-boost',
+    phase: 'theme',
+  })
+}
+
+function startWatchdog(
+  roundId: string,
+  set: (partial: Partial<GameStore>) => void,
+  get: () => GameStore,
+) {
+  stopWatchdog()
+  watchdog = window.setInterval(() => {
+    const flight = get().flight
+    if (!flight || flight.roundId !== roundId || flight.finished) {
+      stopWatchdog()
+      return
+    }
+    if (performance.now() - flight.serverMultiplierAt < SILENCE_BEFORE_RESYNC_MS) {
+      return
+    }
+    void resync(roundId, set, get)
+  }, WATCHDOG_INTERVAL_MS)
+}
+
+/**
+ * Сервер молчит дольше, чем должен. Спрашиваем у него состояние напрямую:
+ * либо раунд ещё летит и мы подтягиваем настоящий коэффициент вместо
+ * самодельного, либо он давно завершён — и тогда показываем результат.
+ */
+async function resync(
+  roundId: string,
+  set: (partial: Partial<GameStore>) => void,
+  get: () => GameStore,
+) {
+  if (resyncing) return
+  resyncing = true
+  try {
+    const state = await api.state()
+    const flight = get().flight
+    if (!flight || flight.roundId !== roundId || flight.finished) return
+
+    const active = state.activeRound
+    if (active && active.roundId === roundId) {
+      set({
+        balance: state.balance,
+        flight: {
+          ...flight,
+          serverMultiplier: active.multiplier,
+          serverMultiplierAt: performance.now(),
+          serverElapsedMs: active.elapsedMs,
+          levelsCrossed: active.levelsCrossed,
+          points: active.points,
+          boostApplied: active.boostApplied,
+          cashedOutAt: active.cashedOutAt,
+          winAmount: active.winAmount,
+        },
+      })
+      return
+    }
+
+    // Среди активных раунда нет — он завершился, а событие до нас не дошло.
+    stopWatchdog()
+    set({ flight: { ...flight, finished: true } })
+    await finishRound(roundId, set, get)
+  } catch {
+    // Сеть недоступна — сторож попробует ещё раз на следующем интервале.
+  } finally {
+    resyncing = false
+  }
+}
+
+/**
  * После краха берём итог отдельным запросом, а не из WS-события:
  * в нём нет награды и данных для проверки честности, а при обрыве
  * соединения событие можно вообще не получить.
@@ -376,6 +563,7 @@ async function finishRound(
 ) {
   unsubscribe?.()
   unsubscribe = null
+  stopWatchdog()
   try {
     const result = await api.roundResult(roundId)
     set({

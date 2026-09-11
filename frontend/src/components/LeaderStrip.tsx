@@ -1,53 +1,64 @@
-import { useEffect, useState } from 'react'
-import { leaderboard } from '../utils/leaderboard'
+import { useGame } from '../store/gameStore'
 import { fmtInt } from '../utils/format'
 
-/** Строка турнира над сценой: очки участников, текущий игрок выделен. */
-export function LeaderStrip({ points }: { points: number }) {
-  const [elapsed, setElapsed] = useState(0)
+/**
+ * Строка турнира над сценой (§1.6 ТЗ): очки участников, текущий игрок выделен
+ * цветом темы. Данные настоящие — сервер пересобирает таблицу и рассылает её
+ * по /topic/leaderboard на каждом пересечённом уровне, поэтому позиция меняется
+ * прямо во время полёта, а не после краха.
+ */
+export function LeaderStrip() {
+  const leaders = useGame((s) => s.leaders)
+  const userId = useGame((s) => s.user?.id)
 
-  useEffect(() => {
-    const timer = setInterval(() => setElapsed((value) => value + 1), 1000)
-    return () => clearInterval(timer)
-  }, [])
-
-  const rows = leaderboard(points, elapsed).slice(0, 6)
+  const rows = leaders.slice(0, 6)
+  if (rows.length === 0) return null
 
   return (
     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
       <span className="label" style={{ marginBottom: 6 }}>
         Турнир
       </span>
-      {rows.map((row) => (
-        <div
-          key={row.name}
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: 5,
-            transition: 'all .4s ease',
-          }}
-        >
-          <span
-            className="num"
+      {rows.map((row) => {
+        const isPlayer = row.playerId === userId
+        return (
+          <div
+            key={row.playerId}
+            title={`${row.name} · ${fmtInt(row.points)} очков`}
             style={{
-              fontSize: row.isPlayer ? 19 : 15,
-              fontWeight: row.isPlayer ? 800 : 700,
-              color: row.isPlayer ? 'var(--amber)' : 'rgba(242,234,219,.55)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 5,
+              transition: 'all .4s ease',
             }}
           >
-            {fmtInt(row.points)}
-          </span>
-          <div
-            style={{
-              width: row.isPlayer ? 48 : 40,
-              height: row.isPlayer ? 6 : 4,
-              background: row.isPlayer ? 'var(--amber)' : 'rgba(242,234,219,.28)',
-            }}
-          />
-        </div>
-      ))}
+            <span
+              className="num"
+              style={{
+                fontSize: isPlayer ? 19 : 15,
+                fontWeight: isPlayer ? 800 : 700,
+                color: isPlayer ? 'var(--amber)' : 'rgba(242,234,219,.55)',
+              }}
+            >
+              {fmtInt(row.points)}
+            </span>
+            <div
+              style={{
+                width: isPlayer ? 48 : 40,
+                height: isPlayer ? 6 : 4,
+                background: isPlayer
+                  ? 'var(--amber)'
+                  : row.inFlight
+                    ? 'rgba(242,166,73,.45)'
+                    : 'rgba(242,234,219,.28)',
+                // Кто сейчас в воздухе — у того очки ещё растут.
+                animation: row.inFlight && !isPlayer ? 'markPulse 1.2s ease-in-out infinite' : undefined,
+              }}
+            />
+          </div>
+        )
+      })}
     </div>
   )
 }
