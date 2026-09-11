@@ -61,7 +61,8 @@
     "alpha": 0.97,
     "max_multiplier": 50.0,
     "min_crash_multiplier": 1.00,
-    "multiplier_growth_rate": 0.15,
+    "multiplier_growth_rate": 0.06,
+    "growth_acceleration_base": 1.12,
     "fps": 10,
     "delta": 0.1
   },

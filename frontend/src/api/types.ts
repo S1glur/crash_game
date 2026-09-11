@@ -49,6 +49,8 @@ export interface StartedRound {
   levelThresholds: number[]
   /** Уровень, на котором ждёт бустер; -1 — ставка без бустера. */
   boostLevelIndex: number
+  /** Порог автовывода, если игрок его задал. */
+  autoCashoutAt: number | null
   resultHash: string
   balanceAfter: number
 }
@@ -103,6 +105,7 @@ export interface GameConfig {
     max_multiplier: number
     min_crash_multiplier: number
     multiplier_growth_rate: number
+    growth_acceleration_base: number
     fps: number
     delta: number
   }
@@ -124,6 +127,7 @@ export type RoundEvent =
   | { type: 'tick'; multiplier: number; elapsedMs: number }
   | { type: 'level'; levelIndex: number; pointsAwarded: number; totalPoints: number }
   | { type: 'boost'; levelIndex: number; boostMultiplier: number; multiplierAfter: number }
+  | { type: 'cashout'; multiplier: number; winAmount: number; points: number; auto: boolean }
   | {
       type: 'round.finished'
       crashAt: number

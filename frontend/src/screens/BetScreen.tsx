@@ -29,12 +29,15 @@ export function BetScreen({
   const history = useGame((s) => s.history)
   const config = useGame((s) => s.config)
   const rewards = useGame((s) => s.rewards)
+  const autoCashout = useGame((s) => s.autoCashout)
+  const setAutoCashout = useGame((s) => s.setAutoCashout)
 
   const [toast, setToast] = useState<string | null>(null)
 
   const options = betOptions[theme] ?? []
   const selected = options.find((option) => option.id === selectedBetId) ?? null
   const canStart = selected !== null && selected.cost <= balance
+  const thresholds = config?.themes?.[theme]?.level_thresholds ?? []
 
   const lootProbabilities = useMemo(() => {
     const themeConfig = config?.themes?.[theme]
@@ -202,6 +205,14 @@ export function BetScreen({
 
             {lootProbabilities.length > 0 && <LootChart probabilities={lootProbabilities} />}
 
+            <AutoCashout
+              value={autoCashout}
+              onChange={setAutoCashout}
+              minimum={thresholds[0] ?? 1.1}
+              bet={selected?.cost ?? 0}
+              boostMultiplier={selected?.boostMultiplier ?? 1}
+            />
+
             <div className="grow" />
 
             <button
@@ -308,5 +319,107 @@ function ThemeToggle({
         <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.55 }}>{levels} уровней</span>
       </div>
     </button>
+  )
+}
+
+/**
+ * Автовывод: игрок заранее называет коэффициент, на котором сервер сам
+ * зафиксирует выигрыш. Смысл не в удобстве, а в психологии crash-игр — решение,
+ * принятое заранее и на холодную голову, спасает от «ещё чуть-чуть», из-за
+ * которого ставка и сгорает.
+ *
+ * Порог хранится и проверяется на сервере: иначе он зависел бы от лагов вкладки
+ * и не сработал бы на свёрнутой странице.
+ */
+function AutoCashout({
+  value,
+  onChange,
+  minimum,
+  bet,
+  boostMultiplier,
+}: {
+  value: number | null
+  onChange: (value: number | null) => void
+  minimum: number
+  bet: number
+  boostMultiplier: number
+}) {
+  const presets = [1.5, 2, 3, 5]
+
+  return (
+    <div className="panel" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span className="label">Автовывод</span>
+        <span style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.55 }}>
+          заберём сами на этом коэффициенте
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+        <button
+          className="chip"
+          onClick={() => onChange(null)}
+          aria-pressed={value === null}
+          style={{
+            borderColor: value === null ? 'var(--amber)' : undefined,
+            color: value === null ? 'var(--amber)' : undefined,
+          }}
+        >
+          Выкл
+        </button>
+
+        {presets
+          .filter((preset) => preset >= minimum)
+          .map((preset) => (
+            <button
+              key={preset}
+              className="chip"
+              onClick={() => onChange(preset)}
+              aria-pressed={value === preset}
+              style={{
+                borderColor: value === preset ? 'var(--amber)' : undefined,
+                color: value === preset ? 'var(--amber)' : undefined,
+              }}
+            >
+              ×{preset.toFixed(2).replace('.', ',')}
+            </button>
+          ))}
+
+        <input
+          type="number"
+          min={minimum}
+          step={0.1}
+          value={value ?? ''}
+          placeholder="свой"
+          onChange={(e) => {
+            const parsed = Number(e.target.value)
+            onChange(e.target.value === '' || Number.isNaN(parsed) ? null : parsed)
+          }}
+          style={{
+            width: 84,
+            font: 'inherit',
+            fontWeight: 700,
+            fontSize: 12,
+            padding: '6px 9px',
+            background: 'rgba(16,13,32,.6)',
+            color: 'var(--cream)',
+            border: '1px solid var(--line)',
+            borderRadius: 2,
+          }}
+        />
+      </div>
+
+      <span style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.66, lineHeight: 1.45 }}>
+        {value === null
+          ? 'Выключен — забирать нужно вручную, пока шар не лопнул.'
+          : bet > 0
+            ? `На ×${value.toFixed(2).replace('.', ',')} получите ${fmtInt(
+                Math.floor(bet * value),
+              )}. Если сработает бустер ×${boostMultiplier}, порог будет достигнут раньше.`
+            : `Сработает на ×${value.toFixed(2).replace('.', ',')}, если шар долетит. Минимум — ×${minimum
+                .toFixed(2)
+                .replace('.', ',')} (первый уровень).`}
+      </span>
+    </div>
   )
 }

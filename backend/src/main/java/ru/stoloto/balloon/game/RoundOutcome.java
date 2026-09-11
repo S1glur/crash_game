@@ -7,7 +7,8 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
-import java.util.Random;
+import java.util.SplittableRandom;
+import java.util.random.RandomGenerator;
 
 /**
  * Предрассчитанный исход раунда: точка краха и позиция бустера.
@@ -27,7 +28,14 @@ public record RoundOutcome(double crashPoint, int boostLevelIndex, long serverSe
      */
     public static RoundOutcome generate(GameConfig config, String theme, int boostTier, Long fixedSeed) {
         long seed = fixedSeed != null ? fixedSeed : new java.security.SecureRandom().nextLong();
-        Random random = new Random(seed);
+
+        // SplittableRandom, а не java.util.Random. У Random линейный конгруэнтный
+        // генератор плохо перемешивает малые seed: для 1, 2, 3, 7, 42 первый
+        // nextDouble() лежит в диапазоне 0.722–0.732, то есть все dev-раунды
+        // получали практически одну и ту же точку краха (~3.6) и режим
+        // воспроизводимости не давал ничего, кроме иллюзии. SplitMix64 внутри
+        // SplittableRandom перемешивает seed полноценно.
+        RandomGenerator random = new SplittableRandom(seed);
 
         GameConfig.CrashModel model = config.crashModel();
         double u = random.nextDouble();
@@ -47,7 +55,7 @@ public record RoundOutcome(double crashPoint, int boostLevelIndex, long serverSe
      * Взвешенный выбор одного уровня по line_N_loot_prob текущей темы.
      * Сумма вероятностей в конфиге равна 1, но нормализуем на случай правки руками.
      */
-    private static int pickBoostLevel(GameConfig.Theme theme, Random random) {
+    private static int pickBoostLevel(GameConfig.Theme theme, RandomGenerator random) {
         int levels = theme.levelsCount();
         double total = 0;
         double[] weights = new double[levels];

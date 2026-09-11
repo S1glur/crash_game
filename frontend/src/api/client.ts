@@ -34,10 +34,14 @@ export const api = {
 
   history: (limit = 20) => request<{ items: HistoryItem[] }>(`/api/history?limit=${limit}`),
 
-  startRound: (theme: Theme, betOptionId: string, dev?: { seed?: number; speedFactor?: number }) =>
+  startRound: (
+    theme: Theme,
+    betOptionId: string,
+    options?: { autoCashoutAt?: number | null; seed?: number; speedFactor?: number },
+  ) =>
     request<StartedRound>('/api/round/start', {
       method: 'POST',
-      body: JSON.stringify({ theme, betOptionId, ...dev }),
+      body: JSON.stringify({ theme, betOptionId, ...options }),
     }),
 
   cashout: (roundId: string) =>

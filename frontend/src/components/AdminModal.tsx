@@ -91,11 +91,18 @@ export function AdminModal({ onClose }: { onClose: () => void }) {
             onChange={(v) => patch((n) => (n.crash_model.alpha = v))}
           />
           <Field
-            label="Темп роста коэффициента"
-            hint="Время полёта = ln(коэффициент) / темп. Ниже — больше времени на решение"
+            label="Начальная скорость роста"
+            hint="Ниже — больше времени на решение в начале полёта"
             value={draft.crash_model.multiplier_growth_rate}
             step={0.01}
             onChange={(v) => patch((n) => (n.crash_model.multiplier_growth_rate = v))}
+          />
+          <Field
+            label="Разгон полёта"
+            hint="Во сколько раз скорость растёт за секунду. 1.0 — без разгона"
+            value={draft.crash_model.growth_acceleration_base}
+            step={0.01}
+            onChange={(v) => patch((n) => (n.crash_model.growth_acceleration_base = v))}
           />
           <Field
             label="Максимальный коэффициент"

@@ -23,6 +23,13 @@ export default function App() {
     void init()
   }, [init])
 
+  // Ветер и редкие птицы фоном на всё время игры (§1.1 ТЗ). Держим на уровне
+  // приложения, иначе атмосфера обрывалась бы на каждом переходе между экранами.
+  useEffect(() => {
+    sound.startAmbience()
+    return () => sound.stopAmbience()
+  }, [])
+
   return (
     <>
       {phase === 'loading' && <Loading />}

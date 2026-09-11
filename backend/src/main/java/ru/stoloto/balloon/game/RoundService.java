@@ -83,7 +83,8 @@ public class RoundService {
      * остаются на сервере до завершения полёта.
      */
     @Transactional
-    public ActiveRound start(String theme, String betOptionId, Long seed, Double speedFactor) {
+    public ActiveRound start(String theme, String betOptionId, Long seed, Double speedFactor,
+                             Double autoCashoutAt) {
         GameConfig config = configService.get();
 
         GameConfig.Theme themeConfig;
@@ -104,6 +105,16 @@ public class RoundService {
             throw new ApiException("INSUFFICIENT_BALANCE", "Не хватает бонусов");
         }
 
+        // Порог автовывода ниже первого уровня недостижим: «Забрать» до него
+        // не работает по правилам игры, и автовывод молча никогда бы не сработал.
+        double firstLevel = themeConfig.levelThresholds().getFirst();
+        if (autoCashoutAt != null
+                && (autoCashoutAt < firstLevel || autoCashoutAt > config.crashModel().maxMultiplier())) {
+            throw new ApiException("VALIDATION_ERROR",
+                    "Автовывод возможен от %.2f до %.0f".formatted(
+                            firstLevel, config.crashModel().maxMultiplier()));
+        }
+
         // Dev-поля действуют только при dev_mode.enabled — иначе клиент мог бы
         // влиять на исход, что прямо запрещено требованием честности.
         boolean devMode = config.devMode() != null && config.devMode().enabled();
@@ -117,6 +128,7 @@ public class RoundService {
         String roundId = "r-" + roundCounter.incrementAndGet();
         ActiveRound round = new ActiveRound(roundId, theme, option.cost(), option.boostTier(),
                 effectiveSpeed, outcome, config);
+        round.setAutoCashoutAt(autoCashoutAt);
         activeRounds.put(roundId, round);
 
         log.debug("Round {} started: theme={} bet={} boostTier={} crashPoint={} boostLevel={} seed={}",
@@ -142,17 +154,35 @@ public class RoundService {
         if (round.levelsCrossed() < 1) {
             throw new ApiException("ROUND_NOT_ACTIVE", "Забрать можно только после первого уровня");
         }
-        if (!round.cashout()) {
+        if (!applyCashout(round, false)) {
             throw new ApiException("ROUND_NOT_ACTIVE", "Раунд уже завершён");
         }
-
-        PlayerEntity player = persistence.player();
-        player.deposit(round.winAmount());
-        playerRepository.save(player);
-
-        log.debug("Round {} cashout at {} -> win {} points {}",
-                roundId, round.cashedOutAt(), round.winAmount(), round.points());
         return round;
+    }
+
+    /**
+     * Фиксация выигрыша и зачисление на баланс. Общая точка для ручного
+     * «Забрать» и автовывода — иначе два пути расходятся, и какой-нибудь из них
+     * однажды забудет начислить очки или разослать событие.
+     */
+    private boolean applyCashout(ActiveRound round, boolean auto) {
+        if (!round.cashout()) {
+            return false;
+        }
+
+        persistence.creditWin(round.winAmount());
+
+        send("/topic/round/" + round.roundId(), Map.of(
+                "type", "cashout",
+                "multiplier", round2(round.cashedOutAt()),
+                "winAmount", round.winAmount(),
+                "points", round.points(),
+                "auto", auto));
+
+        log.debug("Round {} cashout{} at {} -> win {} points {}",
+                round.roundId(), auto ? " (auto)" : "", round.cashedOutAt(),
+                round.winAmount(), round.points());
+        return true;
     }
 
     public ActiveRound active(String roundId) {
@@ -209,13 +239,20 @@ public class RoundService {
             }
         }
 
-        // 3. Крах.
+        // 3. Автовывод — проверяем до краха: если игрок выставил порог и шар его
+        // достиг, выигрыш должен быть зафиксирован, даже когда крах случается
+        // в этом же тике.
+        if (round.autoCashoutDue()) {
+            applyCashout(round, true);
+        }
+
+        // 4. Крах.
         if (round.hasCrashed()) {
             finish(round);
             return;
         }
 
-        // 4. Обычный тик коэффициента.
+        // 5. Обычный тик коэффициента.
         send(topic, Map.of(
                 "type", "tick",
                 "multiplier", round2(round.effectiveMultiplier()),

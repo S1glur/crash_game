@@ -122,7 +122,8 @@ public class GameController {
     @PostMapping("/round/start")
     public Map<String, Object> startRound(@RequestBody StartRequest request) {
         ActiveRound round = roundService.start(
-                request.theme(), request.betOptionId(), request.seed(), request.speedFactor());
+                request.theme(), request.betOptionId(), request.seed(), request.speedFactor(),
+                request.autoCashoutAt());
 
         GameConfig config = configService.get();
         Map<String, Object> body = new LinkedHashMap<>();
@@ -136,6 +137,7 @@ public class GameController {
         // бустером, рискуя крахом», а ждать невидимый маркер игрок не может.
         // Точку краха это не раскрывает — она в hash и остаётся на сервере.
         body.put("boostLevelIndex", round.outcome().boostLevelIndex());
+        body.put("autoCashoutAt", round.autoCashoutAt());
         body.put("resultHash", round.outcome().hash());
         body.put("balanceAfter", persistence.player().getBalance());
         return body;
@@ -216,6 +218,7 @@ public class GameController {
         view.put("boostApplied", round.boostApplied());
         view.put("points", round.points());
         view.put("elapsedMs", round.elapsedMillis());
+        view.put("autoCashoutAt", round.autoCashoutAt());
         view.put("cashedOutAt", round.cashedOutAt());
         view.put("winAmount", round.winAmount());
         return view;
@@ -226,6 +229,8 @@ public class GameController {
             @NotBlank String theme,
             @NotBlank String betOptionId,
             Long seed,
-            Double speedFactor
+            Double speedFactor,
+            /** Коэффициент, на котором сервер сам зафиксирует выигрыш. null — выключено. */
+            Double autoCashoutAt
     ) {}
 }

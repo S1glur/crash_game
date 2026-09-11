@@ -46,6 +46,7 @@ public record GameConfig(
             double maxMultiplier,
             double minCrashMultiplier,
             double multiplierGrowthRate,
+            double growthAccelerationBase,
             int fps,
             double delta
     ) {}

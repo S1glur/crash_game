@@ -24,30 +24,39 @@ export function FlightScreen() {
   const [levelFlash, setLevelFlash] = useState<{ id: number; points: number } | null>(null)
   const lastLevelRef = useRef(0)
 
-  const growthRate = config?.crash_model.multiplier_growth_rate ?? 0.45
+  const growthRate = config?.crash_model.multiplier_growth_rate ?? 0.06
+  const accelBase = config?.crash_model.growth_acceleration_base ?? 1.12
   const pointsPerLine = config?.points.points_per_line ?? 10
 
   /**
-   * Сервер шлёт тик каждые 100 мс, экрану нужно 60 fps — поэтому между
-   * тиками достраиваем коэффициент по той же формуле, что и на бэкенде:
-   * m(t) = m₀ · e^(rate · Δt). Один rAF-цикл, только чтение из стора.
+   * Сервер шлёт тик каждые 100 мс, экрану нужно 60 fps — поэтому между тиками
+   * достраиваем коэффициент сами. Формула обязана совпадать с серверной
+   * (ActiveRound.baseMultiplier), иначе цифра на экране разъедется с той, по
+   * которой считается выигрыш.
+   *
+   * Скорость роста растёт со временем, поэтому экстраполировать нужно не от
+   * нуля, а от момента, в котором раунд сейчас находится: мгновенная скорость
+   * в точке t равна growthRate · accelBase^t, и её мы применяем к промежутку
+   * до следующего тика.
    */
   useEffect(() => {
     let frame = 0
     const loop = () => {
       const current = useGame.getState().flight
       if (current) {
-        const elapsed = (performance.now() - current.serverMultiplierAt) / 1000
+        const sinceTick = (performance.now() - current.serverMultiplierAt) / 1000
+        const roundTime = current.serverElapsedMs / 1000 + sinceTick
+        const rate = growthRate * Math.pow(accelBase, roundTime)
         const projected = current.finished
           ? current.serverMultiplier
-          : current.serverMultiplier * Math.exp(growthRate * elapsed)
+          : current.serverMultiplier * Math.exp(rate * sinceTick)
         setMultiplier(projected)
       }
       frame = requestAnimationFrame(loop)
     }
     frame = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(frame)
-  }, [growthRate])
+  }, [growthRate, accelBase])
 
   useEffect(() => {
     if (!showHint) return
@@ -221,7 +230,13 @@ export function FlightScreen() {
                 >
                   Нажми «Забрать» до того, как шар лопнет
                 </span>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="var(--amber)">
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="var(--amber)"
+                  style={{ animation: 'nudge 1.1s ease-in-out infinite' }}
+                >
                   <path d="M12 20l-7-8h4.6V4h4.8v8H19z" />
                 </svg>
               </div>
@@ -246,7 +261,7 @@ export function FlightScreen() {
                   Забрали {fmtInt(flight.winAmount)} на {fmtMult(flight.cashedOutAt!)}
                 </div>
                 <div style={{ fontSize: 12, fontWeight: 600, marginTop: 4, opacity: 0.75 }}>
-                  Могли бы забрать больше — шар ещё летит
+                  {flight.cashedOutAuto ? 'Автовывод сработал — шар ещё летит' : 'Могли бы забрать больше — шар ещё летит'}
                 </div>
               </div>
             )}
@@ -295,6 +310,18 @@ export function FlightScreen() {
               {flight.points}
             </span>
           </div>
+
+          {flight.autoCashoutAt !== null && !cashedOut && (
+            <div className="narrow-hide" style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <span className="label">Автовывод</span>
+              <span
+                className="num"
+                style={{ fontWeight: 800, fontSize: 28, lineHeight: 1, color: 'var(--amber)' }}
+              >
+                {fmtMult(flight.autoCashoutAt)}
+              </span>
+            </div>
+          )}
 
           <div className="grow" />
 

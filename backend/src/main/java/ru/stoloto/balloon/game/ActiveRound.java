@@ -23,6 +23,7 @@ public class ActiveRound {
     private final List<Double> thresholds;
     private final GameConfig.Points pointsConfig;
     private final double growthRate;
+    private final double accelBase;
     private final long startedAtNanos;
 
     /** Сколько уровней уже пересечено — чтобы не слать событие дважды. */
@@ -31,6 +32,7 @@ public class ActiveRound {
     private volatile boolean boostApplied = false;
     private volatile int points = 0;
 
+    private volatile Double autoCashoutAt = null;
     private volatile Double cashedOutAt = null;
     private volatile int winAmount = 0;
     private final AtomicBoolean finished = new AtomicBoolean(false);
@@ -46,13 +48,37 @@ public class ActiveRound {
         this.thresholds = config.theme(theme).levelThresholds();
         this.pointsConfig = config.points();
         this.growthRate = config.crashModel().multiplierGrowthRate();
+        this.accelBase = config.crashModel().growthAccelerationBase();
         this.startedAtNanos = System.nanoTime();
     }
 
-    /** Базовый коэффициент на текущий момент: e^(growthRate * speedFactor * t). */
+    /**
+     * Базовый коэффициент на текущий момент.
+     *
+     * Скорость роста сама растёт со временем: r(t) = growthRate * accelBase^t.
+     * Интеграл по времени даёт множитель
+     *
+     *     m(t) = exp( growthRate * (accelBase^t - 1) / ln(accelBase) )
+     *
+     * Зачем так: при постоянной скорости раунд с самого начала идёт в темпе,
+     * в котором успеть нажать «Забрать» осознанно почти невозможно, а редкие
+     * долгие полёты, наоборот, тянутся бесконечно. Ускорение решает обе
+     * проблемы сразу — в начале есть время на решение, а к концу полёт
+     * разгоняется, и высокие коэффициенты не превращаются в ожидание.
+     *
+     * accelBase = 1.0 означает отсутствие ускорения: тогда формула вырождается
+     * в обычную экспоненту, и этот случай надо считать отдельно, иначе деление
+     * на ln(1) = 0 даст бесконечность.
+     */
     public double baseMultiplier() {
         double elapsedSeconds = (System.nanoTime() - startedAtNanos) / 1_000_000_000.0;
-        return Math.exp(growthRate * speedFactor * elapsedSeconds);
+        double scaledTime = elapsedSeconds * speedFactor;
+
+        if (accelBase <= 1.0 + 1e-9) {
+            return Math.exp(growthRate * scaledTime);
+        }
+        double lnBase = Math.log(accelBase);
+        return Math.exp(growthRate * (Math.pow(accelBase, scaledTime) - 1.0) / lnBase);
     }
 
     /** Коэффициент, который видит игрок: базовый с учётом сработавшего бустера. */
@@ -77,6 +103,28 @@ public class ActiveRound {
         boostApplied = true;
         points += pointsConfig.pointsBoostBonus();
         return pointsConfig.pointsBoostBonus();
+    }
+
+    /**
+     * Порог автовывода, заданный игроком до старта (null — автовывод выключен).
+     * Хранится и проверяется на сервере: если бы им занимался клиент, вывод
+     * зависел бы от лагов вкладки и не сработал бы на свёрнутой странице.
+     */
+    public Double autoCashoutAt() {
+        return autoCashoutAt;
+    }
+
+    public void setAutoCashoutAt(Double target) {
+        this.autoCashoutAt = target;
+    }
+
+    /** Пора ли сработать автовыводу на текущем коэффициенте. */
+    public boolean autoCashoutDue() {
+        return autoCashoutAt != null
+                && !isCashedOut()
+                && !finished.get()
+                && levelsCrossed >= 1
+                && effectiveMultiplier() >= autoCashoutAt;
     }
 
     /** Фиксирует выигрыш. Возвращает false, если cashout уже был или раунд завершён. */

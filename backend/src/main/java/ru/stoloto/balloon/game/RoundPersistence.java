@@ -39,6 +39,17 @@ public class RoundPersistence {
         });
     }
 
+    /**
+     * Зачисление выигрыша. Отдельный транзакционный метод, потому что автовывод
+     * срабатывает в потоке планировщика, где транзакции нет.
+     */
+    @Transactional
+    public void creditWin(int amount) {
+        PlayerEntity player = player();
+        player.deposit(amount);
+        playerRepository.save(player);
+    }
+
     @Transactional
     public RoundEntity save(ActiveRound round, double crashAt, String outcomeType,
                             GameConfig.Reward reward) {

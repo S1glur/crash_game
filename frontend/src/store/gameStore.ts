@@ -21,12 +21,18 @@ interface FlightState {
   /** Последний коэффициент, пришедший с сервера, и момент его получения — между тиками экран интерполирует сам. */
   serverMultiplier: number
   serverMultiplierAt: number
+  /** Время раунда на момент последнего тика — нужно экрану, чтобы продолжить разгон. */
+  serverElapsedMs: number
   levelsCrossed: number
   points: number
   /** Где ждёт бустер. Известно до взлёта, поэтому маркер виден сразу. */
   boostLevelIndex: number | null
   /** Сработал ли бустер — до этого маркер показываем приглушённым. */
   boostApplied: boolean
+  /** Порог автовывода, заданный до старта (null — выключен). */
+  autoCashoutAt: number | null
+  /** Сработал ли вывод сам, а не по кнопке — для текста на экране. */
+  cashedOutAuto: boolean
   cashedOutAt: number | null
   winAmount: number
   finished: boolean
@@ -42,6 +48,8 @@ interface GameStore {
   config: GameConfig | null
   history: HistoryItem[]
   selectedBetId: string | null
+  /** Выбранный игроком порог автовывода, переживает раунды. */
+  autoCashout: number | null
   flight: FlightState | null
   result: RoundResult | null
   /** Очки игрока за сессию — из них строится турнирная таблица. */
@@ -55,6 +63,7 @@ interface GameStore {
   reloadConfig: () => Promise<void>
   setTheme: (theme: Theme) => void
   selectBet: (betOptionId: string | null) => void
+  setAutoCashout: (value: number | null) => void
   goToBet: () => void
   goToTheme: () => void
   startRound: () => Promise<void>
@@ -77,6 +86,7 @@ export const useGame = create<GameStore>((set, get) => ({
   config: null,
   history: [],
   selectedBetId: null,
+  autoCashout: null,
   flight: null,
   result: null,
   totalPoints: 0,
@@ -123,6 +133,10 @@ export const useGame = create<GameStore>((set, get) => ({
     set({ selectedBetId: betOptionId })
   },
 
+  setAutoCashout(value) {
+    set({ autoCashout: value })
+  },
+
   goToBet() {
     set({ phase: 'bet' })
   },
@@ -132,10 +146,10 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   async startRound() {
-    const { theme, selectedBetId } = get()
+    const { theme, selectedBetId, autoCashout } = get()
     if (!selectedBetId) return
     try {
-      const started = await api.startRound(theme, selectedBetId)
+      const started = await api.startRound(theme, selectedBetId, { autoCashoutAt: autoCashout })
       sound.launch()
       set({
         balance: started.balanceAfter,
@@ -149,10 +163,13 @@ export const useGame = create<GameStore>((set, get) => ({
           resultHash: started.resultHash,
           serverMultiplier: 1,
           serverMultiplierAt: performance.now(),
+          serverElapsedMs: 0,
           levelsCrossed: 0,
           points: 0,
           boostLevelIndex: started.boostLevelIndex >= 0 ? started.boostLevelIndex : null,
           boostApplied: false,
+          autoCashoutAt: started.autoCashoutAt,
+          cashedOutAuto: false,
           cashedOutAt: null,
           winAmount: 0,
           finished: false,
@@ -171,6 +188,7 @@ export const useGame = create<GameStore>((set, get) => ({
                 ...flight,
                 serverMultiplier: event.multiplier,
                 serverMultiplierAt: performance.now(),
+                serverElapsedMs: event.elapsedMs,
               },
             })
             break
@@ -199,6 +217,24 @@ export const useGame = create<GameStore>((set, get) => ({
             sound.boost()
             break
 
+          case 'cashout':
+            // Ручной вывод уже обновил состояние по ответу REST; повторное
+            // событие игнорируем, чтобы не перетереть его самим собой.
+            if (!flight.cashedOutAt) {
+              set({
+                flight: {
+                  ...flight,
+                  cashedOutAt: event.multiplier,
+                  cashedOutAuto: event.auto,
+                  winAmount: event.winAmount,
+                  points: event.points,
+                },
+                balance: get().balance + event.winAmount,
+              })
+              sound.cashout()
+            }
+            break
+
           case 'round.finished': {
             set({
               flight: { ...get().flight!, finished: true, points: event.points },
@@ -225,6 +261,7 @@ export const useGame = create<GameStore>((set, get) => ({
         flight: {
           ...current,
           cashedOutAt: result.cashedOutAt,
+          cashedOutAuto: false,
           winAmount: result.winAmount,
           points: result.pointsSoFar,
         },

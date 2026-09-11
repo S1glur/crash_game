@@ -1,4 +1,4 @@
-import { useId } from 'react'
+import { useId, useMemo } from 'react'
 import type { Theme } from '../api/types'
 
 const ENVELOPE =
@@ -17,6 +17,13 @@ export function Balloon({
   popped?: boolean
 }) {
   const id = useId().replace(/:/g, '')
+  // Каждый шар парит со своей длительностью и фазой: ТЗ требует, чтобы
+  // движения не были синхронными, иначе два шара рядом качаются как один
+  // механизм. Значения фиксируются на монтирование, а не на каждый кадр.
+  const float = useMemo(
+    () => ({ duration: 5.6 + Math.random() * 3.2, delay: -Math.random() * 4 }),
+    [],
+  )
   const body = theme === 'green' ? '#2c6b52' : '#8c2f3a'
   const shade = theme === 'green' ? '#101a16' : '#1a1428'
 
@@ -36,7 +43,11 @@ export function Balloon({
       height={width * 1.357}
       viewBox="0 0 140 190"
       fill="none"
-      style={{ animation: bob ? 'bob 6.8s ease-in-out infinite' : undefined }}
+      style={{
+        animation: bob
+          ? `bob ${float.duration.toFixed(2)}s ease-in-out ${float.delay.toFixed(2)}s infinite`
+          : undefined,
+      }}
     >
       <defs>
         <clipPath id={`env-${id}`}>

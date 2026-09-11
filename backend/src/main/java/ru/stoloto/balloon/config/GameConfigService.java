@@ -153,6 +153,9 @@ public class GameConfigService {
         range("max_multiplier", model.maxMultiplier(), 1.1, 1000.0);
         range("min_crash_multiplier", model.minCrashMultiplier(), 1.0, model.maxMultiplier());
         range("multiplier_growth_rate", model.multiplierGrowthRate(), 0.01, 5.0);
+        // 1.0 = без ускорения. Выше 1.5 полёт разгоняется так, что игрок
+        // физически не успевает среагировать.
+        range("growth_acceleration_base", model.growthAccelerationBase(), 1.0, 1.5);
         range("delta", model.delta(), 0.02, 1.0);
 
         if (config.points() == null) {
