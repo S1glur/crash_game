@@ -1,0 +1,217 @@
+/* Раскладки экранов. Адаптив 320–1920: на узких экранах колонки
+   складываются в одну, но ничего не теряется (требование 2.2 ТЗ). */
+
+.screen {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.screen-inner {
+  position: relative;
+  z-index: 4;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 26px 32px 24px;
+  max-width: 1920px;
+  margin: 0 auto;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 16px;
+  background: rgba(16, 13, 32, 0.6);
+  border: 1px solid rgba(242, 234, 219, 0.2);
+  border-radius: 3px;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.chip-amber {
+  border-color: rgba(242, 166, 73, 0.44);
+}
+
+/* --- экран полёта --- */
+
+.flight-body {
+  flex-grow: 1;
+  display: grid;
+  grid-template-columns: 172px 1fr 312px;
+  gap: 20px;
+  min-height: 0;
+}
+
+.flight-stage {
+  position: relative;
+  min-height: 0;
+}
+
+.flight-bottom {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 16px 22px;
+  background: rgba(16, 13, 32, 0.72);
+  border: 1px solid rgba(242, 234, 219, 0.18);
+  border-radius: 4px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.flight-bottom .btn {
+  height: 68px;
+  padding: 0 56px;
+  font-size: 16px;
+}
+
+/* --- экран ставки --- */
+
+.bet-body {
+  flex-grow: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  min-height: 0;
+}
+
+.bet-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+}
+
+.bet-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  background: rgba(16, 13, 32, 0.55);
+  border: 1px solid rgba(242, 234, 219, 0.14);
+  border-radius: 3px;
+  text-align: left;
+  width: 100%;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.bet-row:hover:not(:disabled) {
+  border-color: rgba(242, 234, 219, 0.34);
+}
+
+.bet-row[data-selected='true'] {
+  background: var(--amber-dim);
+  border-color: var(--amber);
+}
+
+.bet-row:disabled {
+  opacity: 0.45;
+}
+
+/* --- экран темы --- */
+
+.theme-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+}
+
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px 28px;
+  background: rgba(22, 18, 38, 0.72);
+  border: 1px solid rgba(242, 234, 219, 0.16);
+  border-radius: 4px;
+  text-align: left;
+  transition: border-color 0.18s ease, transform 0.18s ease;
+}
+
+.theme-card:hover {
+  border-color: rgba(242, 166, 73, 0.6);
+  transform: translateY(-3px);
+}
+
+/* --- модальные окна --- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(8, 6, 18, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: fadeIn 0.2s ease;
+}
+
+.modal {
+  width: min(720px, 100%);
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+  background: #171327;
+  border: 1px solid rgba(242, 166, 73, 0.42);
+  border-radius: 5px;
+}
+
+/* --- адаптив --- */
+
+@media (max-width: 1180px) {
+  .flight-body {
+    grid-template-columns: 150px 1fr;
+  }
+  .wide-only {
+    display: none !important;
+  }
+}
+
+@media (max-width: 860px) {
+  .screen-inner {
+    padding: 18px 16px 16px;
+    gap: 12px;
+  }
+  .bet-body,
+  .theme-cards {
+    grid-template-columns: 1fr;
+  }
+  .bet-body {
+    overflow-y: auto;
+  }
+  .flight-bottom .btn {
+    height: 60px;
+    padding: 0 28px;
+    flex-grow: 1;
+  }
+}
+
+@media (max-width: 560px) {
+  .flight-body {
+    grid-template-columns: 116px 1fr;
+    gap: 10px;
+  }
+  .flight-bottom {
+    gap: 14px;
+    padding: 14px 16px;
+  }
+  .narrow-hide {
+    display: none !important;
+  }
+}
