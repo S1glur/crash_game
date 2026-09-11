@@ -1,13 +1,14 @@
 # Java / Spring Boot (backend)
 backend/target/
-backend/.mvn/
 backend/*.iml
 backend/.classpath
 backend/.project
 backend/.settings/
 *.class
 *.jar
-!.mvn/wrapper/*.jar
+# backend/.mvn/wrapper/ НЕ игнорируем: без maven-wrapper.properties команда ./mvnw
+# падает у каждого, кто просто склонировал репозиторий, включая экспертов.
+!backend/.mvn/wrapper/*.jar
 
 # Node / React (frontend)
 frontend/node_modules/

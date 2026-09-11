@@ -121,6 +121,10 @@ public class GameController {
         body.put("boostMultiplier", config.boostValue(round.boostTier()));
         body.put("levelsCount", round.thresholds().size());
         body.put("levelThresholds", round.thresholds());
+        // Позиция бустера раскрывается сразу: ТЗ описывает механику «ждать уровня с
+        // бустером, рискуя крахом», а ждать невидимый маркер игрок не может.
+        // Точку краха это не раскрывает — она в hash и остаётся на сервере.
+        body.put("boostLevelIndex", round.outcome().boostLevelIndex());
         body.put("resultHash", round.outcome().hash());
         body.put("balanceAfter", persistence.player().getBalance());
         return body;
@@ -171,15 +175,28 @@ public class GameController {
         return configService.rawJson();
     }
 
+    /**
+     * Состояние летящего раунда — тот же набор полей, что отдаёт /round/start,
+     * чтобы после перезагрузки страницы фронт мог восстановить экран полёта
+     * целиком, а не частично.
+     */
     private Map<String, Object> activeRoundView(ActiveRound round) {
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("roundId", round.roundId());
         view.put("theme", round.theme());
         view.put("bet", round.bet());
+        view.put("boostMultiplier", configService.get().boostValue(round.boostTier()));
+        view.put("levelsCount", round.thresholds().size());
         view.put("levelThresholds", round.thresholds());
+        view.put("boostLevelIndex", round.outcome().boostLevelIndex());
+        view.put("resultHash", round.outcome().hash());
         view.put("multiplier", RoundService.round2(round.effectiveMultiplier()));
         view.put("levelsCrossed", round.levelsCrossed());
+        view.put("boostApplied", round.boostApplied());
+        view.put("points", round.points());
+        view.put("elapsedMs", round.elapsedMillis());
         view.put("cashedOutAt", round.cashedOutAt());
+        view.put("winAmount", round.winAmount());
         return view;
     }
 
