@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { PuzzleIcon } from '../components/PuzzleIcon'
 import { Scene } from '../components/Scene'
 import { UpsellModal } from '../components/UpsellModal'
+import { useCountdown } from '../utils/useCountdown'
 import { useGame } from '../store/gameStore'
 import { sound } from '../utils/sound'
 import { fmtInt, fmtMult } from '../utils/format'
@@ -20,7 +21,12 @@ export function ResultScreen() {
   const placeBet = useGame((s) => s.placeBet)
   const round = useGame((s) => s.round)
 
-  const [countdown, setCountdown] = useState(0)
+  /*
+    Отсчёт больше не наш: экран закрывает сам цикл раундов, когда открывает
+    приём ставок в следующий. Своим таймером мы бы уводили игрока раньше
+    времени — и иногда прямо из-под открытого апсейла.
+  */
+  const countdown = useCountdown(round?.phaseEndsAt ?? Date.now())
   const [upsellOpen, setUpsellOpen] = useState(false)
 
   /**
@@ -52,19 +58,6 @@ export function ResultScreen() {
     }, 1100)
     return () => clearTimeout(timer)
   }, [upsellOption, upsellShown, markUpsellShown])
-
-  /*
-    Отсчёт больше не наш: экран закрывает сам цикл раундов, когда открывает
-    приём ставок в следующий. Своим таймером мы бы уводили игрока раньше
-    времени — и иногда прямо из-под открытого апсейла.
-  */
-  useEffect(() => {
-    if (!round) return
-    const tick = () => setCountdown(Math.max(0, Math.ceil((round.phaseEndsAt - Date.now()) / 1000)))
-    tick()
-    const timer = setInterval(tick, 250)
-    return () => clearInterval(timer)
-  }, [round])
 
   const breakdown = useMemo(() => {
     if (!result || !config) return null

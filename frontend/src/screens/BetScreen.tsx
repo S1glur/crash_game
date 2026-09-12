@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { BetView, StakeLimits } from '../api/types'
 import { RecentRoundsModal } from '../components/RecentRoundsModal'
 import type { RoundState } from '../store/gameStore'
@@ -7,6 +7,7 @@ import { HistoryChart } from '../components/HistoryChart'
 import { LootChart } from '../components/LootChart'
 import { PuzzleIcon } from '../components/PuzzleIcon'
 import { Scene } from '../components/Scene'
+import { useCountdown } from '../utils/useCountdown'
 import { useGame } from '../store/gameStore'
 import { fmtInt, fmtMult } from '../utils/format'
 
@@ -673,13 +674,7 @@ function AutoCashout({
  * элемент экрана: по нему видно, успеваешь ли ты в этот раунд.
  */
 function RoundBar({ round, onOpenRecent }: { round: RoundState; onOpenRecent: () => void }) {
-  const [left, setLeft] = useState(() => Math.max(0, round.phaseEndsAt - Date.now()))
-
-  useEffect(() => {
-    const timer = setInterval(() => setLeft(Math.max(0, round.phaseEndsAt - Date.now())), 200)
-    return () => clearInterval(timer)
-  }, [round.phaseEndsAt])
-
+  const left = useCountdown(round.phaseEndsAt)
   const betting = round.phase === 'BETTING'
 
   return (
@@ -701,9 +696,13 @@ function RoundBar({ round, onOpenRecent }: { round: RoundState; onOpenRecent: ()
       {betting ? (
         <>
           <span className="num" style={{ fontSize: 28, lineHeight: 1, color: 'var(--amber)' }}>
-            {Math.ceil(left / 1000)}
+            {left}
           </span>
-          <span style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.55 }}>сек до взлёта</span>
+          <span style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.55 }}>
+            {/* На нуле приём уже закрыт, а событие о взлёте ещё в пути — */}
+            {/* «0 сек до взлёта» в этот момент читается как зависший экран. */}
+            {left > 0 ? 'сек до взлёта' : 'взлетаем'}
+          </span>
         </>
       ) : (
         <span className="num" style={{ fontSize: 22, lineHeight: 1 }}>

@@ -224,6 +224,73 @@ button:disabled {
   }
 }
 
+/*
+  Разрыв шара. Одна раскадровка на все обломки: направление, дальность и
+  вращение приходят из CSS-переменных, которые считает компонент по геометрии
+  купола. Так девять лоскутов и девять искр живут на одном keyframe, а не на
+  восемнадцати почти одинаковых.
+
+  fill-mode backwards обязателен: клочья ждут окончания вспышки в стартовой
+  позиции, а без него первые 70 мс они висели бы уже разлетевшимися.
+*/
+@keyframes shardFly {
+  0% {
+    transform: translate(0, 0) rotate(0deg) scale(1);
+    opacity: 1;
+  }
+  55% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--tx), var(--ty)) rotate(var(--rot)) scale(var(--sc, 0.78));
+    opacity: 0;
+  }
+}
+
+/* Купол раздувается на кадр перед разрывом — иначе он рвётся без замаха. */
+@keyframes burstPuff {
+  0% {
+    transform: scale(1);
+  }
+  100% {
+    transform: scale(1.14);
+  }
+}
+
+@keyframes burstFlash {
+  0% {
+    transform: scale(0.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(3.1);
+    opacity: 0;
+  }
+}
+
+@keyframes burstRing {
+  0% {
+    transform: scale(0.25);
+    opacity: 0.85;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+/* Корзина падает и остаётся лежать: экран результата держится ещё шесть секунд. */
+@keyframes burstFall {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(26px) rotate(13deg);
+    opacity: 0.5;
+  }
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;

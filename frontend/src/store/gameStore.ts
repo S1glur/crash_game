@@ -78,8 +78,14 @@ interface GameStore {
   selectedBoostId: string
   /** Выбранный игроком порог автовывода, переживает раунды. */
   autoCashout: number | null
-  /** Текущий раунд выбранной темы. */
+  /** Текущий раунд выбранной темы — на него смотрят все экраны. */
   round: RoundState | null
+  /**
+   * Раунды обеих тем. Цикл у зелёной и красной свой, и держим мы оба, чтобы
+   * переключение темы было мгновенным: отсчёт берётся из уже готового
+   * состояния, а не ждёт ответа сервера.
+   */
+  rounds: Record<Theme, RoundState | null>
   /** Личный итог последнего раунда, в котором я участвовал. */
   result: RoundResult | null
   /** Недавние раунды со списком участников — для окна истории. */
@@ -124,7 +130,12 @@ interface GameStore {
   markUpsellShown: () => void
 }
 
-let unsubscribe: (() => void) | null = null
+/**
+ * Отписки от тем. Подписаны обе сразу: пока игрок смотрит на одну, вторая
+ * продолжает жить, и её обратный отсчёт остаётся верным к моменту, когда на
+ * неё переключатся.
+ */
+let unsubscribes: (() => void)[] = []
 
 /**
  * Сторож молчащего сервера.
@@ -164,6 +175,7 @@ export const useGame = create<GameStore>((set, get) => ({
   selectedBoostId: 'no-boost',
   autoCashout: null,
   round: null,
+  rounds: { green: null, red: null },
   result: null,
   recentRounds: [],
   totalPoints: 0,
@@ -195,8 +207,7 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   async logout() {
-    unsubscribe?.()
-    unsubscribe = null
+    stopWatching()
     stopWatchdog()
     closeSocket()
     try {
@@ -210,6 +221,7 @@ export const useGame = create<GameStore>((set, get) => ({
         error: null,
         balance: 0,
         round: null,
+        rounds: { green: null, red: null },
         result: null,
         recentRounds: [],
         history: [],
@@ -233,8 +245,13 @@ export const useGame = create<GameStore>((set, get) => ({
 
   setTheme(theme) {
     sound.select()
-    set({ theme, result: null })
-    // У каждой темы свой независимый цикл, поэтому переподписываемся.
+    /*
+      Раунд второй темы уже лежит в сторе и живёт своей подпиской, поэтому
+      переключение — обычная смена ссылки, без похода на сервер. Раньше здесь
+      ждали ответа /api/state, и ровно эту паузу было видно как застывший на
+      старом значении отсчёт до взлёта.
+    */
+    set({ theme, result: null, round: get().rounds[theme] })
     void watchTheme(theme, set, get)
   },
 
@@ -307,11 +324,13 @@ export const useGame = create<GameStore>((set, get) => ({
     if (!round?.myBet || round.myBet.cashedOutAt !== null) return
     try {
       const result = await api.cashout(get().theme)
-      const current = get().round
+      const current = get().rounds[round.theme]
       if (!current?.myBet) return
-      set({
-        balance: result.balance,
-        round: {
+      set({ balance: result.balance })
+      // Через putRound, а не прямой записью в round: иначе снимок темы
+      // остался бы без отметки о выводе, и первый же тик её затёр бы.
+      putRound(
+        {
           ...current,
           myBet: {
             ...current.myBet,
@@ -320,7 +339,9 @@ export const useGame = create<GameStore>((set, get) => ({
             points: result.pointsSoFar,
           },
         },
-      })
+        set,
+        get,
+      )
       sound.cashout()
     } catch (e) {
       set({ error: (e as Error).message })
@@ -420,11 +441,15 @@ async function loadGame(set: (partial: Partial<GameStore>) => void) {
     stake: state.stake.presets[0] ?? state.stake.min,
     selectedBoostId: state.boostOptions[0]?.id ?? 'no-boost',
     round: roundFromView(state.rounds[state.theme]),
+    rounds: {
+      green: roundFromView(state.rounds.green),
+      red: roundFromView(state.rounds.red),
+    },
     phase: 'theme',
   })
 
   // Цикл идёт непрерывно, поэтому подписываемся сразу: к моменту, когда игрок
-  // дойдёт до лобби, у него уже будет живой обратный отсчёт.
+  // дойдёт до лобби, у него уже будет живой обратный отсчёт — и у обеих тем.
   void watchTheme(state.theme, set, useGame.getState)
 }
 
@@ -453,9 +478,21 @@ function roundFromView(view: RoundView): RoundState {
   }
 }
 
+/**
+ * Единственное место, где меняется состояние раунда.
+ *
+ * Пишем и в `rounds[тема]`, и — если тема активна — в `round`, на который
+ * подписаны экраны. Держать два поля дешевле, чем вычислять активный раунд при
+ * каждом чтении: смена темы становится присваиванием, а не запросом.
+ */
+function putRound(next: RoundState, set: Setter, get: () => GameStore) {
+  const rounds = { ...get().rounds, [next.theme]: next }
+  set(get().theme === next.theme ? { rounds, round: next } : { rounds })
+}
+
 function applyRoundView(view: RoundView, set: Setter, get: () => GameStore) {
-  set({ round: roundFromView(view) })
-  syncScreen(set, get)
+  putRound(roundFromView(view), set, get)
+  if (get().theme === view.theme) syncScreen(set, get)
 }
 
 /**
@@ -476,25 +513,40 @@ function syncScreen(set: Setter, get: () => GameStore) {
   }
 }
 
+const THEMES: Theme[] = ['green', 'red']
+
+function stopWatching() {
+  unsubscribes.forEach((off) => off())
+  unsubscribes = []
+}
+
 /**
- * Подписка на цикл выбранной темы. У зелёной и красной свои независимые
- * раунды, поэтому при смене темы подписку надо переставить, а не добавить.
+ * Подписка на циклы обеих тем плюс сторож для активной.
+ *
+ * Подписаны обе: у зелёной и красной свои независимые раунды, и если слушать
+ * только выбранную, то вторая к моменту переключения оказывается на несколько
+ * раундов в прошлом — а её отсчёт до взлёта нужен на экране сразу. Стоит это
+ * одного события на смену фазы: тики неактивной темы отбрасываются на входе.
  */
 async function watchTheme(theme: Theme, set: Setter, get: () => GameStore) {
-  unsubscribe?.()
-  unsubscribe = null
   stopWatchdog()
+
+  if (unsubscribes.length === 0) {
+    unsubscribes = THEMES.map((watched) =>
+      subscribeToRound(watched, (event) => handleRoundEvent(watched, event, set, get)),
+    )
+  }
+
+  startWatchdog(theme, set, get)
 
   try {
     const state = await api.state()
     set({ balance: state.balance })
-    applyRoundView(state.rounds[theme], set, get)
+    // /api/state отдаёт обе темы — обновляем обе, раз уж сходили.
+    THEMES.forEach((watched) => applyRoundView(state.rounds[watched], set, get))
   } catch {
     // Сеть недоступна — состояние подтянет сторож на следующем интервале.
   }
-
-  startWatchdog(theme, set, get)
-  unsubscribe = subscribeToRound(theme, (event) => handleRoundEvent(theme, event, set, get))
 }
 
 function handleRoundEvent(
@@ -503,9 +555,48 @@ function handleRoundEvent(
   set: Setter,
   get: () => GameStore,
 ) {
-  const round = get().round
-  if (!round || round.theme !== theme) return
+  const round = get().rounds[theme]
+  if (!round) return
   const myId = get().user?.id
+
+  /*
+    Тема, на которую игрок сейчас не смотрит, нужна ровно для одного: чтобы её
+    обратный отсчёт был верен в момент переключения. Поэтому из неё берём одну
+    смену фазы и прямо из события — без запроса к серверу и без звука, экрана
+    и баланса, которые относятся к активной теме.
+  */
+  if (get().theme !== theme) {
+    if (event.type === 'phase') {
+      const sameRound = event.roundId === round.roundId
+      putRound(
+        {
+          ...round,
+          roundId: event.roundId,
+          phase: event.phase,
+          phaseEndsAt: Date.now() + event.phaseRemainingMs,
+          resultHash: event.resultHash,
+          betCount: event.betCount,
+          totalStake: event.totalStake,
+          // Новый раунд — прежние участники и своя ставка к нему не относятся.
+          ...(sameRound
+            ? {}
+            : {
+                bets: [],
+                myBet: null,
+                queuedBet: null,
+                levelsCrossed: 0,
+                serverMultiplier: 1,
+                serverMultiplierAt: performance.now(),
+                serverElapsedMs: 0,
+                crashAt: null,
+              }),
+        },
+        set,
+        get,
+      )
+    }
+    return
+  }
 
   switch (event.type) {
     case 'phase': {
@@ -540,23 +631,25 @@ function handleRoundEvent(
             } satisfies BetView,
           ]
         : round.bets
-      set({ round: { ...round, betCount: event.betCount, totalStake: event.totalStake, bets } })
+      putRound({ ...round, betCount: event.betCount, totalStake: event.totalStake, bets }, set, get)
       break
     }
 
     case 'tick':
-      set({
-        round: {
+      putRound(
+        {
           ...round,
           serverMultiplier: event.multiplier,
           serverMultiplierAt: performance.now(),
           serverElapsedMs: event.elapsedMs,
         },
-      })
+        set,
+        get,
+      )
       break
 
     case 'level':
-      set({ round: { ...round, levelsCrossed: event.levelIndex + 1 } })
+      putRound({ ...round, levelsCrossed: event.levelIndex + 1 }, set, get)
       if (round.myBet) sound.level(event.levelIndex)
       break
 
@@ -565,13 +658,11 @@ function handleRoundEvent(
       if (firedIds.size === 0) break
       const mark = (bet: BetView) =>
         firedIds.has(bet.playerId) ? { ...bet, boostApplied: true } : bet
-      set({
-        round: {
-          ...round,
-          bets: round.bets.map(mark),
-          myBet: round.myBet ? mark(round.myBet) : null,
-        },
-      })
+      putRound(
+        { ...round, bets: round.bets.map(mark), myBet: round.myBet ? mark(round.myBet) : null },
+        set,
+        get,
+      )
       if (myId && firedIds.has(myId)) sound.boost()
       break
     }
@@ -590,31 +681,31 @@ function handleRoundEvent(
       // Автовывод сработал на сервере — баланс на клиенте о нём ещё не знает.
       // Ручной вывод уже начислен ответом REST, второй раз добавлять нельзя.
       const creditAuto = mine && event.auto && round.myBet?.cashedOutAt === null
-      set({
-        round: {
-          ...round,
-          bets: round.bets.map(patch),
-          myBet: round.myBet ? patch(round.myBet) : null,
-        },
-        ...(creditAuto ? { balance: get().balance + event.winAmount } : {}),
-      })
+      putRound(
+        { ...round, bets: round.bets.map(patch), myBet: round.myBet ? patch(round.myBet) : null },
+        set,
+        get,
+      )
+      if (creditAuto) set({ balance: get().balance + event.winAmount })
       if (mine && event.auto) sound.cashout()
       break
     }
 
     case 'round.finished': {
-      set({
-        round: {
+      putRound(
+        {
           ...round,
           phase: 'RESULT',
           crashAt: event.crashAt,
           serverMultiplier: event.crashAt,
           serverMultiplierAt: performance.now(),
         },
-      })
+        set,
+        get,
+      )
       if (round.myBet) {
         sound.crash()
-        void finishRound(event.roundId, set, get)
+        void finishRound(event.roundId, set, get, true)
       }
       void get().refreshHistory()
       break
@@ -622,12 +713,17 @@ function handleRoundEvent(
   }
 }
 
-/** Перечитывает раунд темы с сервера — источник правды при любых сомнениях. */
-async function refreshRound(theme: Theme, set: Setter, get: () => GameStore) {
+/**
+ * Перечитывает раунды с сервера — источник правды при любых сомнениях.
+ *
+ * Обновляем обе темы, а не только запрошенную: ответ и так содержит обе, а
+ * неактивная тем самым остаётся точной к моменту переключения.
+ */
+async function refreshRound(_theme: Theme, set: Setter, get: () => GameStore) {
   try {
     const state = await api.state()
     set({ balance: state.balance })
-    applyRoundView(state.rounds[theme], set, get)
+    THEMES.forEach((watched) => applyRoundView(state.rounds[watched], set, get))
   } catch {
     // Пропускаем: следующий тик или сторож повторят попытку.
   }
@@ -636,8 +732,8 @@ async function refreshRound(theme: Theme, set: Setter, get: () => GameStore) {
 function startWatchdog(theme: Theme, set: Setter, get: () => GameStore) {
   stopWatchdog()
   watchdog = window.setInterval(() => {
-    const round = get().round
-    if (!round || round.theme !== theme) {
+    const round = get().rounds[theme]
+    if (!round || get().theme !== theme) {
       stopWatchdog()
       return
     }
@@ -658,9 +754,9 @@ async function resync(theme: Theme, set: Setter, get: () => GameStore) {
   if (resyncing) return
   resyncing = true
   try {
-    const before = get().round
+    const before = get().rounds[theme]
     await refreshRound(theme, set, get)
-    const after = get().round
+    const after = get().rounds[theme]
     if (before?.myBet && after && after.roundId !== before.roundId) {
       // Раунд успел смениться, а события до нас не дошли — добираем свой итог.
       await finishRound(before.roundId, set, get)
@@ -671,13 +767,32 @@ async function resync(theme: Theme, set: Setter, get: () => GameStore) {
 }
 
 /**
+ * Сколько держим экран полёта после краха, чтобы разрыв шара успел доиграть.
+ * Запрос за итогом уходит сразу — ждём только показа, а не данных.
+ */
+const BURST_HOLD_MS = 1150
+
+/**
  * После краха берём личный итог отдельным запросом, а не из WS-события:
  * в нём нет награды и данных для проверки честности, а при обрыве соединения
  * событие можно вообще не получить.
+ *
+ * Флаг holdForBurst — для случая, когда шар лопнул у игрока на глазах: экран
+ * результата приходит по сети за считанные миллисекунды и срезал бы анимацию
+ * разрыва на первом кадре. При доборе итога после обрыва связи держать нечего:
+ * разрыва на экране не было.
  */
-async function finishRound(roundId: string, set: Setter, get: () => GameStore) {
+async function finishRound(
+  roundId: string,
+  set: Setter,
+  get: () => GameStore,
+  holdForBurst = false,
+) {
   try {
-    const result = await api.roundResult(roundId)
+    const [result] = await Promise.all([
+      api.roundResult(roundId),
+      holdForBurst ? new Promise((done) => setTimeout(done, BURST_HOLD_MS)) : null,
+    ])
     set({
       result,
       phase: 'result',
