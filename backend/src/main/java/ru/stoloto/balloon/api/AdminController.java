@@ -1,256 +1,215 @@
 package ru.stoloto.balloon.api;
 
+import org.springframework.data.domain.Limit;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import ru.stoloto.balloon.domain.PlayerEntity;
+import ru.stoloto.balloon.domain.GameRoundEntity;
+import ru.stoloto.balloon.domain.GameRoundRepository;
 import ru.stoloto.balloon.domain.PlayerRepository;
 import ru.stoloto.balloon.domain.RoundEntity;
 import ru.stoloto.balloon.domain.RoundRepository;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
- * Отчётность для администратора продукта.
+ * Отчётность для администратора продукта: сколько игра приняла, сколько отдала
+ * и что осталось.
  *
- * Считается на лету из таблицы раундов — в прототипе их сотни, и отдельное
+ * Считается на лету из таблиц раундов — в прототипе их сотни, и отдельное
  * хранилище агрегатов только разошлось бы с исходными данными. Доступ закрыт
  * ролью ADMIN в SecurityConfig.
+ *
+ * Ключевое решение: всё, что относится к ходу игры — сколько было полётов, где
+ * лопнул шар, сколько собрал раунд, — считается по таблице `game_rounds`, то
+ * есть по самим полётам. Раньше это считалось по `rounds`, то есть по ставкам
+ * участников, и цифры врали дважды: раунд с тремя участниками попадал в
+ * статистику трижды, а раунды, в которых никто не играл, не попадали вообще,
+ * хотя цикл идёт непрерывно и такие раунды состоялись. По ставкам теперь
+ * считается только то, что действительно про ставки: сколько внесли игроки и
+ * сколько из этого ушло на доплату за бустер.
  */
 @RestController
 @RequestMapping("/api/admin")
 public class AdminController {
 
-    /**
-     * Границы корзин распределения точки краха. Разбиение неравномерное:
-     * половина раундов заканчивается ниже 2.0, и равномерные корзины
-     * свалили бы их все в одну.
-     */
-    private static final double[] BUCKETS = {1.0, 1.1, 1.5, 2.0, 3.0, 5.0, 10.0, Double.POSITIVE_INFINITY};
+    /** Сколько последних полётов показывать на экране. Весь журнал — в выгрузке. */
+    private static final int RECENT_LIMIT = 12;
 
-    private final RoundRepository rounds;
+    private static final DateTimeFormatter STAMP =
+            DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss").withZone(ZoneId.systemDefault());
+
+    private final GameRoundRepository flights;
+    private final RoundRepository bets;
     private final PlayerRepository players;
 
-    public AdminController(RoundRepository rounds, PlayerRepository players) {
-        this.rounds = rounds;
+    public AdminController(GameRoundRepository flights, RoundRepository bets, PlayerRepository players) {
+        this.flights = flights;
+        this.bets = bets;
         this.players = players;
     }
 
     @GetMapping("/report")
     public Map<String, Object> report() {
-        List<RoundEntity> all = rounds.findAll();
-        List<PlayerEntity> allPlayers = players.findAll();
+        Totals totals = collect();
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("generatedAt", Instant.now().toString());
-        body.put("totals", totals(all, allPlayers));
-        body.put("crashDistribution", crashDistribution(all));
-        body.put("boostTiers", boostTiers(all));
-        body.put("themes", themes(all));
-        body.put("players", playerRows(all, allPlayers));
-        body.put("recent", recent());
+        body.put("totals", totals.toMap());
+        body.put("recent", recentFlights());
         return body;
     }
 
-    private Map<String, Object> totals(List<RoundEntity> all, List<PlayerEntity> allPlayers) {
-        long staked = 0;
-        long boostFees = 0;
-        long paidOut = 0;
-        long points = 0;
-        int cashouts = 0;
-        double maxMultiplier = 0;
+    /**
+     * Журнал всех полётов таблицей.
+     *
+     * Разделитель — точка с запятой, дробная часть — через запятую: так файл
+     * открывается двойным щелчком в русском Excel без мастера импорта. BOM
+     * нужен там же, иначе кириллица в заголовках превращается в кракозябры.
+     */
+    @GetMapping(value = "/rounds.csv", produces = "text/csv; charset=UTF-8")
+    public ResponseEntity<byte[]> roundsCsv() {
+        Totals totals = collect();
+        StringBuilder csv = new StringBuilder("﻿");
 
-        List<Double> crashes = new ArrayList<>(all.size());
-        for (RoundEntity round : all) {
-            staked += round.getStake();
-            boostFees += round.getBoostFee();
-            paidOut += round.getWinAmount();
-            points += round.getPoints();
-            if ("cashout".equals(round.getOutcome())) {
-                cashouts++;
-            }
-            crashes.add(round.getCrashAt());
-            maxMultiplier = Math.max(maxMultiplier, round.getCrashAt());
+        csv.append("Воздушный Шар — журнал раундов\n");
+        csv.append("Снято;").append(STAMP.format(Instant.now())).append('\n');
+        csv.append("Полётов;").append(totals.flights).append('\n');
+        csv.append("Из них со ставками;").append(totals.flightsWithBets).append('\n');
+        csv.append("Игроков;").append(totals.players).append('\n');
+        csv.append("Из них делали ставки;").append(totals.playersWithBets).append('\n');
+        csv.append("Принято;").append(totals.accepted()).append('\n');
+        csv.append("Выплачено;").append(totals.paidOut).append('\n');
+        csv.append("Прибыль игры;").append(signed(totals.houseNet())).append('\n');
+        csv.append("Возврат игроку;").append(decimal(totals.rtp() * 100)).append(" %\n");
+        csv.append('\n');
+
+        csv.append("Раунд;Время;Тема;Крах;Ставок;Принято;Выплачено;Прибыль\n");
+        for (GameRoundEntity flight : flights.findAllByOrderByFinishedAtDesc(Limit.of(10000))) {
+            csv.append(flight.getRoundId()).append(';')
+                    .append(STAMP.format(flight.getFinishedAt())).append(';')
+                    .append(themeName(flight.getTheme())).append(';')
+                    .append(decimal(flight.getCrashAt())).append(';')
+                    .append(flight.getBetCount()).append(';')
+                    .append(flight.getTotalStake()).append(';')
+                    .append(flight.getTotalWin()).append(';')
+                    .append(signed(flight.getTotalStake() - flight.getTotalWin())).append('\n');
         }
 
-        long totalPaid = staked + boostFees;
-        crashes.sort(Comparator.naturalOrder());
+        byte[] bytes = csv.toString().getBytes(StandardCharsets.UTF_8);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                        .filename("balloon-rounds.csv", StandardCharsets.UTF_8).build().toString())
+                .body(bytes);
+    }
 
-        Map<String, Object> totals = new LinkedHashMap<>();
-        totals.put("players", allPlayers.size());
-        totals.put("rounds", all.size());
-        totals.put("staked", staked);
-        totals.put("boostFees", boostFees);
-        totals.put("totalPaid", totalPaid);
-        totals.put("paidOut", paidOut);
-        totals.put("houseNet", totalPaid - paidOut);
-        // Возврат игроку: сколько выплачено на каждый вложенный балл, считая
-        // доплату за бустер — она сгорает всегда и в выплате не участвует.
-        totals.put("rtp", totalPaid == 0 ? 0.0 : round4((double) paidOut / totalPaid));
-        totals.put("pointsAwarded", points);
-        totals.put("cashoutRounds", cashouts);
-        totals.put("crashRounds", all.size() - cashouts);
-        totals.put("cashoutShare", all.isEmpty() ? 0.0 : round4((double) cashouts / all.size()));
-        totals.put("meanCrash", crashes.isEmpty() ? 0.0
-                : round4(crashes.stream().mapToDouble(Double::doubleValue).sum() / crashes.size()));
-        totals.put("medianCrash", crashes.isEmpty() ? 0.0 : round4(crashes.get(crashes.size() / 2)));
-        totals.put("maxCrash", round4(maxMultiplier));
+    /** Один проход по обеим таблицам: экран и выгрузка считают одно и то же. */
+    private Totals collect() {
+        Totals totals = new Totals();
+
+        for (GameRoundEntity flight : flights.findAll()) {
+            totals.flights++;
+            if (flight.getBetCount() > 0) {
+                totals.flightsWithBets++;
+            }
+            totals.paidOut += flight.getTotalWin();
+        }
+
+        Set<String> betting = new HashSet<>();
+        for (RoundEntity bet : bets.findAll()) {
+            totals.staked += bet.getStake();
+            totals.boostFees += bet.getBoostFee();
+            betting.add(bet.getPlayerId());
+        }
+
+        totals.players = players.count();
+        totals.playersWithBets = betting.size();
         return totals;
     }
 
-    private List<Map<String, Object>> crashDistribution(List<RoundEntity> all) {
-        int[] counts = new int[BUCKETS.length - 1];
-        for (RoundEntity round : all) {
-            double crash = round.getCrashAt();
-            for (int i = 0; i < counts.length; i++) {
-                if (crash >= BUCKETS[i] && crash < BUCKETS[i + 1]) {
-                    counts[i]++;
-                    break;
-                }
-            }
-        }
-
-        List<Map<String, Object>> buckets = new ArrayList<>(counts.length);
-        for (int i = 0; i < counts.length; i++) {
-            Map<String, Object> bucket = new LinkedHashMap<>();
-            bucket.put("from", BUCKETS[i]);
-            bucket.put("to", Double.isInfinite(BUCKETS[i + 1]) ? null : BUCKETS[i + 1]);
-            bucket.put("count", counts[i]);
-            bucket.put("share", all.isEmpty() ? 0.0 : round4((double) counts[i] / all.size()));
-            buckets.add(bucket);
-        }
-        return buckets;
-    }
-
-    /** Насколько бустер окупается: как часто его покупают и как часто он успевает сработать. */
-    private List<Map<String, Object>> boostTiers(List<RoundEntity> all) {
-        Map<Integer, int[]> byTier = new HashMap<>();
-        Map<Integer, long[]> money = new HashMap<>();
-        for (RoundEntity round : all) {
-            int tier = round.getBoostTier();
-            int[] counts = byTier.computeIfAbsent(tier, key -> new int[2]);
-            counts[0]++;
-            if (round.isBoostApplied()) {
-                counts[1]++;
-            }
-            long[] sums = money.computeIfAbsent(tier, key -> new long[2]);
-            sums[0] += round.getBoostFee();
-            sums[1] += round.getWinAmount();
-        }
-
-        List<Map<String, Object>> tiers = new ArrayList<>();
-        byTier.keySet().stream().sorted().forEach(tier -> {
-            int[] counts = byTier.get(tier);
-            long[] sums = money.get(tier);
+    private List<Map<String, Object>> recentFlights() {
+        List<Map<String, Object>> list = new ArrayList<>(RECENT_LIMIT);
+        for (GameRoundEntity flight : flights.findAllByOrderByFinishedAtDesc(Limit.of(RECENT_LIMIT))) {
             Map<String, Object> row = new LinkedHashMap<>();
-            row.put("tier", tier);
-            row.put("rounds", counts[0]);
-            row.put("applied", counts[1]);
-            row.put("appliedShare", counts[0] == 0 ? 0.0 : round4((double) counts[1] / counts[0]));
-            row.put("feesPaid", sums[0]);
-            row.put("wonWith", sums[1]);
-            tiers.add(row);
-        });
-        return tiers;
-    }
-
-    private List<Map<String, Object>> themes(List<RoundEntity> all) {
-        Map<String, long[]> byTheme = new HashMap<>();
-        for (RoundEntity round : all) {
-            // [раундов, уплачено, выплачено]
-            long[] sums = byTheme.computeIfAbsent(round.getTheme(), key -> new long[3]);
-            sums[0]++;
-            sums[1] += round.getTotalPaid();
-            sums[2] += round.getWinAmount();
-        }
-
-        List<Map<String, Object>> list = new ArrayList<>();
-        byTheme.forEach((theme, sums) -> {
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("theme", theme);
-            row.put("rounds", sums[0]);
-            row.put("totalPaid", sums[1]);
-            row.put("paidOut", sums[2]);
-            row.put("rtp", sums[1] == 0 ? 0.0 : round4((double) sums[2] / sums[1]));
-            list.add(row);
-        });
-        list.sort(Comparator.comparingLong(
-                (Map<String, Object> row) -> -((Number) row.get("rounds")).longValue()));
-        return list;
-    }
-
-    private List<Map<String, Object>> playerRows(List<RoundEntity> all, List<PlayerEntity> allPlayers) {
-        Map<String, long[]> stats = new HashMap<>();
-        Map<String, Double> best = new HashMap<>();
-        for (RoundEntity round : all) {
-            // [раундов, ставки, уплачено всего, выплачено, очки]
-            long[] sums = stats.computeIfAbsent(round.getPlayerId(), key -> new long[5]);
-            sums[0]++;
-            sums[1] += round.getStake();
-            sums[2] += round.getTotalPaid();
-            sums[3] += round.getWinAmount();
-            sums[4] += round.getPoints();
-            if (round.getCashedOutAt() != null) {
-                best.merge(round.getPlayerId(), round.getCashedOutAt(), Math::max);
-            }
-        }
-
-        List<Map<String, Object>> list = new ArrayList<>(allPlayers.size());
-        for (PlayerEntity player : allPlayers) {
-            long[] sums = stats.getOrDefault(player.getId(), new long[5]);
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("id", player.getId());
-            row.put("username", player.getUsername());
-            row.put("displayName", player.getDisplayName());
-            row.put("role", player.getRole());
-            row.put("balance", player.getBalance());
-            row.put("totalPoints", player.getTotalPoints());
-            row.put("rounds", sums[0]);
-            row.put("staked", sums[1]);
-            row.put("totalPaid", sums[2]);
-            row.put("paidOut", sums[3]);
-            row.put("net", sums[3] - sums[2]);
-            row.put("roundPoints", sums[4]);
-            row.put("bestMultiplier", best.getOrDefault(player.getId(), 0.0));
-            list.add(row);
-        }
-        list.sort(Comparator.comparingLong(
-                (Map<String, Object> row) -> -((Number) row.get("totalPaid")).longValue()));
-        return list;
-    }
-
-    private List<Map<String, Object>> recent() {
-        Map<String, String> names = new HashMap<>();
-        players.findAll().forEach(player -> names.put(player.getId(), player.getDisplayName()));
-
-        List<Map<String, Object>> list = new ArrayList<>();
-        for (RoundEntity round : rounds.findAllByOrderByFinishedAtDesc(org.springframework.data.domain.Limit.of(25))) {
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("roundId", round.getRoundId());
-            row.put("player", names.getOrDefault(round.getPlayerId(), "—"));
-            row.put("theme", round.getTheme());
-            row.put("stake", round.getStake());
-            row.put("totalPaid", round.getTotalPaid());
-            row.put("outcome", round.getOutcome());
-            row.put("multiplier", round.getCashedOutAt() != null ? round.getCashedOutAt() : round.getCrashAt());
-            row.put("crashAt", round.getCrashAt());
-            row.put("winAmount", round.getWinAmount());
-            row.put("points", round.getPoints());
-            row.put("boostTier", round.getBoostTier());
-            row.put("boostApplied", round.isBoostApplied());
-            row.put("finishedAt", round.getFinishedAt().toString());
+            row.put("roundId", flight.getRoundId());
+            row.put("theme", flight.getTheme());
+            row.put("crashAt", flight.getCrashAt());
+            row.put("betCount", flight.getBetCount());
+            row.put("accepted", flight.getTotalStake());
+            row.put("paidOut", flight.getTotalWin());
+            row.put("finishedAt", flight.getFinishedAt().toString());
             list.add(row);
         }
         return list;
     }
 
-    private static double round4(double value) {
-        return Math.round(value * 10000.0) / 10000.0;
+    private static String themeName(String theme) {
+        return "green".equals(theme) ? "Изумруд" : "Бордо";
+    }
+
+    /** Убыток в выгрузке должен читаться как убыток, поэтому плюс пишем явно. */
+    private static String signed(long value) {
+        return (value > 0 ? "+" : "") + value;
+    }
+
+    private static String decimal(double value) {
+        return String.format(Locale.ROOT, "%.2f", value).replace('.', ',');
+    }
+
+    /**
+     * Итоги периода. Приход разделён на ставки и доплату за бустер намеренно:
+     * доплата сгорает всегда и в выплате не участвует, и без этого разделения
+     * непонятно, за счёт чего игра остаётся в плюсе.
+     */
+    private static final class Totals {
+        long flights;
+        long flightsWithBets;
+        long players;
+        long playersWithBets;
+        long staked;
+        long boostFees;
+        long paidOut;
+
+        long accepted() {
+            return staked + boostFees;
+        }
+
+        long houseNet() {
+            return accepted() - paidOut;
+        }
+
+        double rtp() {
+            return accepted() == 0 ? 0.0 : Math.round((double) paidOut / accepted() * 10000.0) / 10000.0;
+        }
+
+        Map<String, Object> toMap() {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("flights", flights);
+            map.put("flightsWithBets", flightsWithBets);
+            map.put("players", players);
+            map.put("playersWithBets", playersWithBets);
+            map.put("staked", staked);
+            map.put("boostFees", boostFees);
+            map.put("accepted", accepted());
+            map.put("paidOut", paidOut);
+            map.put("houseNet", houseNet());
+            map.put("rtp", rtp());
+            return map;
+        }
     }
 }

@@ -59,6 +59,18 @@ export const api = {
   /** Отчётность администратора. Игроку сервер ответит 403. */
   adminReport: () => request<AdminReport>('/api/admin/report'),
 
+  /**
+   * Журнал раундов файлом. Идёт мимо request(): ответ не JSON, а CSV, и его
+   * нужно сохранить на диск, а не разобрать.
+   */
+  roundsCsv: async (): Promise<Blob> => {
+    const response = await fetch('/api/admin/rounds.csv', { credentials: 'include' })
+    if (!response.ok) {
+      throw new ApiError('EXPORT_FAILED', 'Не удалось выгрузить журнал', response.status)
+    }
+    return response.blob()
+  },
+
   register: (username: string, password: string, displayName: string) =>
     request<User>('/api/auth/register', {
       method: 'POST',

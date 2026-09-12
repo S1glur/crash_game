@@ -188,65 +188,36 @@ export interface FeedItem {
   points: number
 }
 
-/** Отчёт администратора: GET /api/admin/report. */
+/**
+ * Отчёт администратора: GET /api/admin/report.
+ *
+ * Счётчики хода игры — по полётам, а не по ставкам: раунд с тремя участниками
+ * состоялся один раз, а раунд без единой ставки всё равно состоялся.
+ */
 export interface AdminReport {
   generatedAt: string
   totals: {
+    /** Сколько раз шар взлетал, включая раунды без ставок. */
+    flights: number
+    flightsWithBets: number
     players: number
-    rounds: number
+    playersWithBets: number
+    /** Приход разделён: доплата за бустер сгорает всегда и в выплате не участвует. */
     staked: number
     boostFees: number
-    totalPaid: number
+    accepted: number
     paidOut: number
+    /** Принято минус выплачено. Отрицательное значение — убыток. */
     houseNet: number
-    /** Выплачено на каждый уплаченный балл, считая доплату за бустер. */
     rtp: number
-    pointsAwarded: number
-    cashoutRounds: number
-    crashRounds: number
-    cashoutShare: number
-    meanCrash: number
-    medianCrash: number
-    maxCrash: number
   }
-  crashDistribution: { from: number; to: number | null; count: number; share: number }[]
-  boostTiers: {
-    tier: number
-    rounds: number
-    applied: number
-    appliedShare: number
-    feesPaid: number
-    wonWith: number
-  }[]
-  themes: { theme: Theme; rounds: number; totalPaid: number; paidOut: number; rtp: number }[]
-  players: {
-    id: string
-    username: string
-    displayName: string
-    role: Role
-    balance: number
-    totalPoints: number
-    rounds: number
-    staked: number
-    totalPaid: number
-    paidOut: number
-    net: number
-    roundPoints: number
-    bestMultiplier: number
-  }[]
   recent: {
     roundId: string
-    player: string
     theme: Theme
-    stake: number
-    totalPaid: number
-    outcome: Outcome
-    multiplier: number
     crashAt: number
-    winAmount: number
-    points: number
-    boostTier: number
-    boostApplied: boolean
+    betCount: number
+    accepted: number
+    paidOut: number
     finishedAt: string
   }[]
 }

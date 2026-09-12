@@ -7,11 +7,17 @@ import { fmtInt, fmtMult } from '../utils/format'
 /**
  * Отчётность администратора продукта.
  *
+ * Экран отвечает на два вопроса и больше ни на какие: сколько игра заработала
+ * и что происходило в последних раундах. Прежняя версия показывала ещё
+ * распределение точки краха, окупаемость бустеров по тирам, разбивку по темам
+ * и таблицу игроков — на четырёх демо-аккаунтах все эти срезы состояли из
+ * единиц наблюдений и читались как шум.
+ *
  * Кодировка данных сознательно не опирается на цвет. Пара «зелёный/бордовый»,
  * которой в игре различаются темы, при дейтеранопии даёт разницу ΔE 5.7 — то
- * есть исход раунда по цвету не читался бы вовсе. Поэтому исход всегда написан
- * словом, доли показаны одним акцентным цветом на нейтральной дорожке, а в
- * гистограмме значение несёт высота столбца, а не оттенок.
+ * есть по цвету не читалась бы вовсе. Поэтому тема названа словом, прибыль
+ * подписана знаком, а доли показаны одним акцентным цветом на нейтральной
+ * дорожке.
  */
 export function ReportScreen() {
   const goToTheme = useGame((s) => s.goToTheme)
@@ -19,6 +25,7 @@ export function ReportScreen() {
   const [report, setReport] = useState<AdminReport | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   const load = useCallback(async () => {
     setBusy(true)
@@ -35,6 +42,29 @@ export function ReportScreen() {
   useEffect(() => {
     void load()
   }, [load])
+
+  /*
+    Выгрузка идёт через blob, а не через <a href="/api/admin/rounds.csv">:
+    прямая ссылка на отказ сервера увела бы администратора со страницы на
+    голый JSON с ошибкой, а так он остаётся на экране и видит сообщение.
+  */
+  const exportCsv = useCallback(async () => {
+    setExporting(true)
+    try {
+      const blob = await api.roundsCsv()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'balloon-rounds.csv'
+      link.click()
+      URL.revokeObjectURL(url)
+      setError(null)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setExporting(false)
+    }
+  }, [])
 
   return (
     <div className="screen report-screen">
@@ -66,15 +96,10 @@ export function ReportScreen() {
           <div className="report-body scroll-y">
             <Kpis report={report} />
 
-            <div className="report-cols">
-              <CrashDistribution report={report} />
-              <ModelSummary report={report} />
+            <div className="report-cols report-cols-even">
+              <CashFlow report={report} />
+              <RecentFlights report={report} onExport={() => void exportCsv()} exporting={exporting} />
             </div>
-
-            <BoostTable report={report} />
-            <ThemeTable report={report} />
-            <PlayerTable report={report} />
-            <RecentTable report={report} />
           </div>
         )}
       </div>
@@ -84,306 +109,237 @@ export function ReportScreen() {
 
 function Kpis({ report }: { report: AdminReport }) {
   const t = report.totals
+  const profit = t.houseNet >= 0
+
   return (
     <div className="report-kpis">
-      <Tile value={fmtInt(t.rounds)} caption="раундов сыграно" />
-      <Tile value={fmtInt(t.players)} caption="аккаунтов" />
-      <Tile value={fmtInt(t.totalPaid)} caption="принято ставок" hint="ставки и доплаты за бустер" />
-      <Tile value={fmtInt(t.paidOut)} caption="выплачено" />
+      <div className="panel stat-tile" style={{ borderColor: 'rgba(242,166,73,.44)' }}>
+        <span className="num" style={{ fontSize: 34, color: 'var(--amber)' }}>
+          {signed(t.houseNet)}
+        </span>
+        <span className="stat-caption">заработала игра</span>
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: profit ? 'var(--emerald-lt)' : 'var(--bordeaux-lt)' }}>
+          {profit ? 'в плюсе' : 'в минусе'} · приняли {fmtInt(t.accepted)}, отдали {fmtInt(t.paidOut)}
+        </span>
+      </div>
+
+      <Tile value={pct(t.rtp)} caption="возврат игроку" hint="на каждые 100 принятых баллов" />
+
       <Tile
-        value={pct(t.rtp)}
-        caption="возврат игроку"
-        accent
-        hint="выплачено ÷ принято; доплата за бустер сгорает всегда"
+        value={fmtInt(t.flights)}
+        caption="полётов"
+        hint={`из них со ставками ${fmtInt(t.flightsWithBets)}`}
       />
+
       <Tile
-        value={`${t.houseNet >= 0 ? '+' : ''}${fmtInt(t.houseNet)}`}
-        caption="осталось у игры"
-        hint="принято минус выплачено"
+        value={fmtInt(t.players)}
+        caption="игроков"
+        hint={`делали ставки ${fmtInt(t.playersWithBets)}`}
       />
     </div>
   )
 }
 
-function Tile({
-  value,
-  caption,
-  accent,
-  hint,
-}: {
-  value: string
-  caption: string
-  accent?: boolean
-  hint?: string
-}) {
+function Tile({ value, caption, hint }: { value: string; caption: string; hint: string }) {
   return (
-    <div className="panel stat-tile" title={hint}>
-      <span className="num" style={{ fontSize: 30, color: accent ? 'var(--amber)' : 'var(--cream)' }}>
+    <div className="panel stat-tile">
+      <span className="num" style={{ fontSize: 34 }}>
         {value}
       </span>
-      <span style={{ fontSize: 10.5, fontWeight: 700, opacity: 0.52, lineHeight: 1.35 }}>{caption}</span>
+      <span className="stat-caption">{caption}</span>
+      <span style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.5 }}>{hint}</span>
     </div>
   )
 }
 
 /**
- * Где чаще всего лопается шар. Значение несёт высота столбца; акцентом выделен
- * только самый частый диапазон, и он же подписан — это эмфаза внутри одного
- * ряда, а не вторая категория.
+ * Куда пришли и куда ушли деньги.
+ *
+ * Все три полосы меряются одной линейкой — принятой суммой, — поэтому их длины
+ * сравнимы между собой: видно и то, какую долю прихода дала доплата за бустер,
+ * и то, насколько выплата не дотянула до прихода.
  */
-function CrashDistribution({ report }: { report: AdminReport }) {
-  const buckets = report.crashDistribution
-  const max = Math.max(...buckets.map((bucket) => bucket.count), 1)
-  const peak = buckets.reduce((best, bucket) => (bucket.count > best.count ? bucket : best), buckets[0])
-
-  return (
-    <div className="panel report-card">
-      <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-        <span className="label">Где лопается шар</span>
-        <div className="grow" />
-        <span style={{ fontSize: 10.5, opacity: 0.45 }}>раундов в диапазоне коэффициента</span>
-      </div>
-
-      <div className="report-bars">
-        {buckets.map((bucket) => {
-          const isPeak = peak && bucket.from === peak.from && bucket.count > 0
-          return (
-            <div key={bucket.from} className="report-bar-col">
-              <span
-                className="num"
-                style={{
-                  fontSize: 12,
-                  color: isPeak ? 'var(--amber)' : 'rgba(242,234,219,.5)',
-                }}
-              >
-                {bucket.count}
-              </span>
-              <div
-                title={`${bucketLabel(bucket)} — ${bucket.count} раундов, ${pct(bucket.share)}`}
-                style={{
-                  width: '100%',
-                  height: `${Math.max(bucket.count > 0 ? 6 : 2, (bucket.count / max) * 100)}%`,
-                  background: isPeak ? 'var(--amber)' : '#8a7fc4',
-                  borderRadius: '3px 3px 0 0',
-                }}
-              />
-              <span style={{ fontSize: 9.5, opacity: 0.5, whiteSpace: 'nowrap' }}>
-                {bucketLabel(bucket)}
-              </span>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-function ModelSummary({ report }: { report: AdminReport }) {
+function CashFlow({ report }: { report: AdminReport }) {
   const t = report.totals
+  const scale = Math.max(t.accepted, t.paidOut, 1)
+  const profit = t.houseNet >= 0
+
   return (
     <div className="panel report-card">
-      <span className="label">Как ведёт себя модель</span>
+      <span className="label">Приход и расход</span>
 
-      <div className="report-stats-row">
-        <Mini value={fmtMult(t.medianCrash)} caption="медианный крах" />
-        <Mini value={fmtMult(t.meanCrash)} caption="средний крах" />
-        <Mini value={fmtMult(t.maxCrash)} caption="максимум" />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <Bar label="Ставки игроков" value={t.staked} share={t.staked / scale} color="var(--amber)" />
+        <Bar label="Доплата за бустеры" value={t.boostFees} share={t.boostFees / scale} color="#8a7fc4" />
+        <div className="hr" />
+        <Bar label="Выплачено выигрышей" value={t.paidOut} share={t.paidOut / scale} color="var(--emerald-lt)" />
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-        <div className="row" style={{ gap: 10 }}>
-          <span style={{ fontSize: 12, fontWeight: 700 }}>Раунды с выводом</span>
-          <div className="grow" />
-          <span className="num" style={{ fontSize: 18, color: 'var(--amber)' }}>
-            {pct(t.cashoutShare)}
+      <div className="grow" />
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 18,
+          padding: '18px 22px',
+          background: 'var(--amber-dim)',
+          border: '1px solid rgba(242,166,73,.42)',
+          borderRadius: 3,
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span className="label">Осталось игре</span>
+          <span className="num" style={{ fontWeight: 800, fontSize: 40, lineHeight: 1, color: 'var(--amber)' }}>
+            {signed(t.houseNet)}
           </span>
         </div>
-
-        {/* Одна доля — одна заливка на нейтральной дорожке, без второй категории. */}
-        <div className="report-track">
-          <div className="report-track-fill" style={{ width: `${t.cashoutShare * 100}%` }} />
-        </div>
-
-        <span style={{ fontSize: 11, opacity: 0.5, lineHeight: 1.45 }}>
-          Забрали выигрыш в {fmtInt(t.cashoutRounds)} раундах, не успели — в {fmtInt(t.crashRounds)}.
-          Начислено {fmtInt(t.pointsAwarded)} турнирных очков.
+        <div className="grow" />
+        <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.6, lineHeight: 1.5, maxWidth: 280 }}>
+          {profit
+            ? `Приняли ${fmtInt(t.accepted)}, отдали ${fmtInt(t.paidOut)}. Доплата за бустер сгорает всегда и в выплате не участвует.`
+            : `Приняли ${fmtInt(t.accepted)}, отдали ${fmtInt(t.paidOut)}. Игра сейчас в убытке — выплаты обогнали приход.`}
         </span>
       </div>
     </div>
   )
 }
 
-function Mini({ value, caption }: { value: string; caption: string }) {
+function Bar({
+  label,
+  value,
+  share,
+  color,
+}: {
+  label: string
+  value: number
+  share: number
+  color: string
+}) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-      <span className="num" style={{ fontSize: 21 }}>
-        {value}
-      </span>
-      <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.5 }}>{caption}</span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+      <div className="row" style={{ gap: 10, alignItems: 'baseline' }}>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>{label}</span>
+        <div className="grow" />
+        <span className="num" style={{ fontSize: 22 }}>
+          {fmtInt(value)}
+        </span>
+      </div>
+      <div className="report-track" style={{ height: 26 }}>
+        <div
+          className="report-track-fill"
+          style={{ width: `${Math.min(100, share * 100)}%`, background: color }}
+        />
+      </div>
     </div>
   )
 }
 
-function BoostTable({ report }: { report: AdminReport }) {
+/**
+ * Последние полёты — по одной строке на раунд, а не на ставку.
+ *
+ * Раунды без участников остаются в списке: цикл идёт непрерывно, и, пропусти
+ * мы их, он выглядел бы прерывистым, а «полётов 128» в шапке не сходилось бы
+ * с тем, что видно в таблице.
+ */
+function RecentFlights({
+  report,
+  onExport,
+  exporting,
+}: {
+  report: AdminReport
+  onExport: () => void
+  exporting: boolean
+}) {
   return (
     <div className="panel report-card">
-      <span className="label">Бустеры: покупают и срабатывают</span>
-      <table className="report-table">
-        <thead>
-          <tr>
-            <th>Бустер</th>
-            <th className="num-col">Раундов</th>
-            <th className="num-col">Сработал</th>
-            <th className="num-col">Доля</th>
-            <th className="num-col">Доплат собрано</th>
-            <th className="num-col">Выплачено</th>
-          </tr>
-        </thead>
-        <tbody>
-          {report.boostTiers.map((tier) => (
-            <tr key={tier.tier}>
-              <td>{tier.tier === 1 ? 'без бустера' : `×${tier.tier}`}</td>
-              <td className="num-col">{fmtInt(tier.rounds)}</td>
-              <td className="num-col">{tier.tier === 1 ? '—' : fmtInt(tier.applied)}</td>
-              <td className="num-col">{tier.tier === 1 ? '—' : pct(tier.appliedShare)}</td>
-              <td className="num-col">{fmtInt(tier.feesPaid)}</td>
-              <td className="num-col">{fmtInt(tier.wonWith)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
+      <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+        <span className="label">Последние раунды</span>
+        <div className="grow" />
+        <span style={{ fontSize: 10.5, opacity: 0.45 }}>полностью — в выгрузке</span>
+      </div>
 
-function ThemeTable({ report }: { report: AdminReport }) {
-  return (
-    <div className="panel report-card">
-      <span className="label">Темы</span>
-      <table className="report-table">
-        <thead>
-          <tr>
-            <th>Тема</th>
-            <th className="num-col">Раундов</th>
-            <th className="num-col">Принято</th>
-            <th className="num-col">Выплачено</th>
-            <th className="num-col">Возврат</th>
-          </tr>
-        </thead>
-        <tbody>
-          {report.themes.map((theme) => (
-            <tr key={theme.theme}>
-              <td>{theme.theme === 'green' ? 'Изумруд · 9 уровней' : 'Бордо · 12 уровней'}</td>
-              <td className="num-col">{fmtInt(theme.rounds)}</td>
-              <td className="num-col">{fmtInt(theme.totalPaid)}</td>
-              <td className="num-col">{fmtInt(theme.paidOut)}</td>
-              <td className="num-col">{pct(theme.rtp)}</td>
+      <div style={{ overflowX: 'auto' }}>
+        <table className="report-table">
+          <thead>
+            <tr>
+              <th>Раунд</th>
+              <th>Тема</th>
+              <th>Крах</th>
+              <th>Ставок</th>
+              <th>Принято</th>
+              <th>Выплачено</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
+          </thead>
+          <tbody>
+            {report.recent.map((flight) => (
+              <tr key={flight.roundId}>
+                <td style={{ opacity: 0.5 }}>{flight.roundId}</td>
+                <td>{flight.theme === 'green' ? 'Изумруд' : 'Бордо'}</td>
+                <td
+                  className="num"
+                  style={{ color: flight.crashAt < 1.5 ? 'var(--bordeaux-lt)' : 'var(--cream)' }}
+                >
+                  {fmtMult(flight.crashAt)}
+                </td>
+                <td>{flight.betCount > 0 ? flight.betCount : <span style={{ opacity: 0.35 }}>—</span>}</td>
+                <td>{flight.betCount > 0 ? fmtInt(flight.accepted) : <span style={{ opacity: 0.35 }}>—</span>}</td>
+                <td>{flight.betCount > 0 ? fmtInt(flight.paidOut) : <span style={{ opacity: 0.35 }}>—</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-function PlayerTable({ report }: { report: AdminReport }) {
-  return (
-    <div className="panel report-card">
-      <span className="label">Игроки</span>
-      <table className="report-table">
-        <thead>
-          <tr>
-            <th>Игрок</th>
-            <th>Роль</th>
-            <th className="num-col">Баланс</th>
-            <th className="num-col">Очки</th>
-            <th className="num-col">Раундов</th>
-            <th className="num-col">Потрачено</th>
-            <th className="num-col">Выиграно</th>
-            <th className="num-col">Итог</th>
-            <th className="num-col">Лучший вывод</th>
-          </tr>
-        </thead>
-        <tbody>
-          {report.players.map((player) => (
-            <tr key={player.id}>
-              <td>
-                {player.displayName}
-                <span style={{ opacity: 0.4 }}> · {player.username}</span>
-              </td>
-              <td>{player.role === 'ADMIN' ? 'админ' : 'игрок'}</td>
-              <td className="num-col">{fmtInt(player.balance)}</td>
-              <td className="num-col">{fmtInt(player.totalPoints)}</td>
-              <td className="num-col">{fmtInt(player.rounds)}</td>
-              <td className="num-col">{fmtInt(player.totalPaid)}</td>
-              <td className="num-col">{fmtInt(player.paidOut)}</td>
-              <td className="num-col" style={{ color: player.net >= 0 ? 'var(--emerald-lt)' : 'var(--bordeaux-lt)' }}>
-                {player.net >= 0 ? '+' : ''}
-                {fmtInt(player.net)}
-              </td>
-              <td className="num-col">{player.bestMultiplier ? fmtMult(player.bestMultiplier) : '—'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function RecentTable({ report }: { report: AdminReport }) {
-  return (
-    <div className="panel report-card">
-      <span className="label">Последние раунды</span>
-      <table className="report-table">
-        <thead>
-          <tr>
-            <th>Время</th>
-            <th>Игрок</th>
-            <th>Тема</th>
-            <th className="num-col">Ставка</th>
-            <th>Исход</th>
-            <th className="num-col">Коэффициент</th>
-            <th className="num-col">Выигрыш</th>
-            <th className="num-col">Очки</th>
-            <th>Бустер</th>
-          </tr>
-        </thead>
-        <tbody>
-          {report.recent.map((round) => (
-            <tr key={round.roundId}>
-              <td style={{ opacity: 0.55 }}>
-                {new Date(round.finishedAt).toLocaleTimeString('ru-RU')}
-              </td>
-              <td>{round.player}</td>
-              <td>{round.theme === 'green' ? 'изумруд' : 'бордо'}</td>
-              <td className="num-col">{fmtInt(round.stake)}</td>
-              {/* Исход написан словом: цвет здесь только подкрепляет текст. */}
-              <td
-                style={{
-                  color: round.outcome === 'cashout' ? 'var(--emerald-lt)' : 'var(--bordeaux-lt)',
-                  fontWeight: 700,
-                }}
-              >
-                {round.outcome === 'cashout' ? 'забрал' : 'крах'}
-              </td>
-              <td className="num-col">{fmtMult(round.multiplier)}</td>
-              <td className="num-col">{round.winAmount ? fmtInt(round.winAmount) : '—'}</td>
-              <td className="num-col">{fmtInt(round.points)}</td>
-              <td>
-                {round.boostTier === 1 ? '—' : `×${round.boostTier} ${round.boostApplied ? 'сработал' : 'не успел'}`}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
       {report.recent.length === 0 && (
-        <span style={{ fontSize: 12, opacity: 0.5 }}>Раундов пока нет — сыграйте, и таблица наполнится.</span>
+        <span style={{ fontSize: 12, opacity: 0.5 }}>Ни одного завершённого раунда пока нет.</span>
       )}
+
+      <div className="grow" />
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 16,
+          padding: '15px 18px',
+          background: 'var(--amber-dim)',
+          border: '1px solid rgba(242,166,73,.42)',
+          borderRadius: 3,
+          flexWrap: 'wrap',
+        }}
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 3v12" />
+          <path d="M7.5 10.5L12 15l4.5-4.5" />
+          <path d="M4 19h16" />
+        </svg>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <span style={{ fontSize: 13, fontWeight: 800 }}>Скачать журнал раундов</span>
+          <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.55 }}>
+            CSV: раунд, время, тема, крах, ставок, принято, выплачено, прибыль
+          </span>
+        </div>
+        <div className="grow" />
+        <button
+          className="btn btn-primary"
+          style={{ height: 44, padding: '0 26px', fontSize: 12 }}
+          onClick={onExport}
+          disabled={exporting}
+        >
+          {exporting ? 'Готовлю…' : 'Выгрузить'}
+        </button>
+      </div>
     </div>
   )
 }
 
-const pct = (value: number) => `${(value * 100).toFixed(1).replace('.', ',')} %`
+/** Прибыль без знака читается как оборот, поэтому плюс пишем явно. */
+function signed(value: number): string {
+  return `${value > 0 ? '+' : ''}${fmtInt(value)}`
+}
 
-const bucketLabel = (bucket: AdminReport['crashDistribution'][number]) =>
-  bucket.to === null ? `${bucket.from}+` : `${bucket.from}–${bucket.to}`
+function pct(value: number): string {
+  return `${(value * 100).toFixed(1).replace('.', ',')} %`
+}
