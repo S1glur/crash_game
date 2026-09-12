@@ -47,6 +47,17 @@
 			<artifactId>h2</artifactId>
 			<scope>runtime</scope>
 		</dependency>
+		<!--
+			Postgres нужен только развёрнутому прототипу: на хостинге диск
+			эфемерный, и файловая H2 обнулялась бы при каждом деплое вместе с
+			аккаунтами и отчётностью. Локально ничего не меняется — какая база
+			используется, решает адрес из окружения.
+		-->
+		<dependency>
+			<groupId>org.postgresql</groupId>
+			<artifactId>postgresql</artifactId>
+			<scope>runtime</scope>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-jpa-test</artifactId>

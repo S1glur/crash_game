@@ -34,4 +34,7 @@ Thumbs.db
 # H2 database files (local dev)
 *.mv.db
 *.trace.db
+# Папка базы целиком: рядом с ней заводятся резервные копии, которые по маске
+# *.mv.db не ловятся и лезут в коммит.
+backend/data/
 balloon.jar

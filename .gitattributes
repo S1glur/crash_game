@@ -1,0 +1,8 @@
+# Скрипты, которые исполняются внутри Linux-контейнера, обязаны лежать с LF.
+# Git на Windows по умолчанию превращает их в CRLF при выгрузке, и тогда образ
+# падает на запуске с «no such file or directory»: интерпретатор ищет
+# «/bin/sh\r». Отлаживать это в ночь перед сдачей — худший из сценариев.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
