@@ -1,12 +1,14 @@
-import { useMemo, useState } from 'react'
-import type { StakeLimits } from '../api/types'
+import { useEffect, useMemo, useState } from 'react'
+import type { BetView, StakeLimits } from '../api/types'
+import { RecentRoundsModal } from '../components/RecentRoundsModal'
+import type { RoundState } from '../store/gameStore'
 import { Balloon } from '../components/Balloon'
 import { HistoryChart } from '../components/HistoryChart'
 import { LootChart } from '../components/LootChart'
 import { PuzzleIcon } from '../components/PuzzleIcon'
 import { Scene } from '../components/Scene'
 import { useGame } from '../store/gameStore'
-import { fmtInt } from '../utils/format'
+import { fmtInt, fmtMult } from '../utils/format'
 
 /** Коэффициент, по которому показываем «сколько получится» — медиана истории. */
 const REFERENCE_MULTIPLIER = 2
@@ -28,7 +30,10 @@ export function BetScreen({
   const levelsCount = useGame((s) => s.levelsCount)
   const selectedBoostId = useGame((s) => s.selectedBoostId)
   const selectBoost = useGame((s) => s.selectBoost)
-  const startRound = useGame((s) => s.startRound)
+  const placeBet = useGame((s) => s.placeBet)
+  const cancelBet = useGame((s) => s.cancelBet)
+  const round = useGame((s) => s.round)
+  const user = useGame((s) => s.user)
   const goToTheme = useGame((s) => s.goToTheme)
   const history = useGame((s) => s.history)
   const config = useGame((s) => s.config)
@@ -38,11 +43,19 @@ export function BetScreen({
   const topUp = useGame((s) => s.topUp)
 
   const [toast, setToast] = useState<string | null>(null)
+  const [recentOpen, setRecentOpen] = useState(false)
 
   const selected = boostOptions.find((option) => option.id === selectedBoostId) ?? null
   const boostFee = selected ? Math.ceil(stake * selected.priceFactor) : 0
   const totalCost = stake + boostFee
-  const canStart = selected !== null && totalCost <= balance
+  const myBet = round?.myBet ?? null
+  const queuedBet = round?.queuedBet ?? null
+  const betting = round?.phase === 'BETTING'
+  /*
+    Ставку принимаем в любой фазе: если приём закрыт, сервер поставит её в
+    очередь на следующий раунд. Иначе одинокий игрок караулил бы нужную секунду.
+  */
+  const canStart = selected !== null && totalCost <= balance && !myBet && !queuedBet
   const thresholds = config?.themes?.[theme]?.level_thresholds ?? []
 
   /*
@@ -183,6 +196,8 @@ export function BetScreen({
               </div>
             </div>
 
+            {round && <Participants bets={round.bets} meId={user?.id} />}
+
             <HistoryChart items={history} />
           </div>
 
@@ -222,6 +237,8 @@ export function BetScreen({
                 </button>
               </div>
             )}
+
+            {round && <RoundBar round={round} onOpenRecent={() => setRecentOpen(true)} />}
 
             <StakeInput
               value={stake}
@@ -308,27 +325,43 @@ export function BetScreen({
 
             <div className="grow" />
 
-            <button
-              className="btn btn-primary"
-              style={{ height: 66 }}
-              disabled={!canStart}
-              onClick={() => void startRound()}
-            >
-              Начать полёт
-              {selected && (
-                <span
-                  style={{
-                    padding: '5px 12px',
-                    background: 'rgba(36,30,54,.18)',
-                    borderRadius: 2,
-                    fontSize: 13,
-                    letterSpacing: 0,
-                  }}
-                >
-                  −{fmtInt(totalCost)}
-                </span>
-              )}
-            </button>
+            {myBet || queuedBet ? (
+              <button
+                className="btn btn-ghost"
+                style={{ height: 66 }}
+                onClick={() => void cancelBet()}
+              >
+                Отменить ставку · вернём {fmtInt((myBet ?? queuedBet)!.totalPaid)}
+              </button>
+            ) : (
+              <button
+                className="btn btn-primary"
+                style={{ height: 66 }}
+                disabled={!canStart}
+                onClick={() => void placeBet()}
+              >
+                {betting ? 'Поставить' : 'В очередь на следующий раунд'}
+                {selected && (
+                  <span
+                    style={{
+                      padding: '5px 12px',
+                      background: 'rgba(36,30,54,.18)',
+                      borderRadius: 2,
+                      fontSize: 13,
+                      letterSpacing: 0,
+                    }}
+                  >
+                    −{fmtInt(totalCost)}
+                  </span>
+                )}
+              </button>
+            )}
+
+            {queuedBet && (
+              <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--amber)', lineHeight: 1.4 }}>
+                Ставка принята в следующий раунд — приём в этот уже был закрыт.
+              </span>
+            )}
 
             {/* Из чего складывается списание — иначе доплата выглядит скрытой. */}
             {selected && boostFee > 0 && (
@@ -368,6 +401,8 @@ export function BetScreen({
           </div>
         </div>
       </div>
+
+      {recentOpen && <RecentRoundsModal onClose={() => setRecentOpen(false)} />}
 
       {toast && (
         <div
@@ -627,6 +662,109 @@ function AutoCashout({
               (boostMultiplier > 1 ? ` · с бустером порог возьмём раньше` : '')
             : `Минимум — ×${minimum.toFixed(2).replace('.', ',')} (первый уровень).`}
       </span>
+    </div>
+  )
+}
+
+/**
+ * Шапка лобби: в каком состоянии общий раунд и сколько до его смены.
+ *
+ * Цикл идёт непрерывно и без игроков, поэтому обратный отсчёт — главный
+ * элемент экрана: по нему видно, успеваешь ли ты в этот раунд.
+ */
+function RoundBar({ round, onOpenRecent }: { round: RoundState; onOpenRecent: () => void }) {
+  const [left, setLeft] = useState(() => Math.max(0, round.phaseEndsAt - Date.now()))
+
+  useEffect(() => {
+    const timer = setInterval(() => setLeft(Math.max(0, round.phaseEndsAt - Date.now())), 200)
+    return () => clearInterval(timer)
+  }, [round.phaseEndsAt])
+
+  const betting = round.phase === 'BETTING'
+
+  return (
+    <div
+      className="panel"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 14,
+        padding: '12px 16px',
+        borderColor: betting ? 'rgba(242,166,73,.44)' : 'var(--line)',
+        flexWrap: 'wrap',
+      }}
+    >
+      <span className="label" style={{ color: betting ? 'var(--amber)' : undefined }}>
+        {betting ? 'Приём ставок' : round.phase === 'FLYING' ? 'Шар в воздухе' : 'Раунд завершён'}
+      </span>
+
+      {betting ? (
+        <>
+          <span className="num" style={{ fontSize: 28, lineHeight: 1, color: 'var(--amber)' }}>
+            {Math.ceil(left / 1000)}
+          </span>
+          <span style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.55 }}>сек до взлёта</span>
+        </>
+      ) : (
+        <span className="num" style={{ fontSize: 22, lineHeight: 1 }}>
+          {fmtMult(round.crashAt ?? round.serverMultiplier)}
+        </span>
+      )}
+
+      <div className="grow" />
+
+      <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.55 }}>
+        {round.roundId} · участников {round.betCount}
+      </span>
+      <button className="chip chip-sm" onClick={onOpenRecent}>
+        Недавние
+      </button>
+    </div>
+  )
+}
+
+/** Кто уже в раунде. Тот же список виден и во время полёта. */
+function Participants({ bets, meId }: { bets: BetView[]; meId?: string }) {
+  if (bets.length === 0) {
+    return (
+      <div className="panel" style={{ padding: '11px 16px' }}>
+        <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.5 }}>
+          В этом раунде пока никого — станьте первым.
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="panel" style={{ padding: '11px 16px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+      <span className="label">В раунде · {bets.length}</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 120, overflowY: 'auto' }}>
+        {bets.map((bet) => (
+          <div
+            key={bet.playerId}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              fontSize: 12,
+              fontWeight: 600,
+              opacity: bet.playerId === meId ? 1 : 0.72,
+            }}
+          >
+            <span style={{ color: bet.playerId === meId ? 'var(--amber)' : undefined }}>
+              {bet.player}
+              {bet.playerId === meId ? ' · вы' : ''}
+            </span>
+            {bet.boostTier > 1 && (
+              <span style={{ fontSize: 10.5, opacity: 0.7 }}>×{bet.boostMultiplier}</span>
+            )}
+            <div className="grow hr" />
+            <span className="num" style={{ fontSize: 14 }}>
+              {fmtInt(bet.stake)}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

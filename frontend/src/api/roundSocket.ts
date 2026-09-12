@@ -63,8 +63,8 @@ function subscribeToTopic<T>(topic: string, onMessage: (body: T) => void) {
   }
 }
 
-export function subscribeToRound(roundId: string, onEvent: (event: RoundEvent) => void) {
-  return subscribeToTopic<RoundEvent>(`/topic/round/${roundId}`, onEvent)
+export function subscribeToRound(theme: string, onEvent: (event: RoundEvent) => void) {
+  return subscribeToTopic<RoundEvent>(`/topic/round/${theme}`, onEvent)
 }
 
 /** Турнирная таблица всех участников — обновляется, пока кто-то летит. */

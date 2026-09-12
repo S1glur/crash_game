@@ -34,3 +34,4 @@ Thumbs.db
 # H2 database files (local dev)
 *.mv.db
 *.trace.db
+balloon.jar

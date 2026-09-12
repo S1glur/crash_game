@@ -8,6 +8,12 @@
     "starting_balance": 1000
   },
 
+  "round_cycle": {
+    "betting_seconds": 15,
+    "result_seconds": 6,
+    "speed_factor": 1.0
+  },
+
   "stake": {
     "min": 10,
     "max": 400,

@@ -38,52 +38,87 @@ export interface StakeLimits {
   presets: number[]
 }
 
-export interface ActiveRoundView {
-  roundId: string
-  theme: Theme
+/** Фаза непрерывного цикла раундов. */
+export type RoundPhase = 'BETTING' | 'FLYING' | 'RESULT'
+
+/** Ставка одного участника в общем раунде. */
+export interface BetView {
+  playerId: string
+  player: string
   stake: number
   boostFee: number
   totalPaid: number
+  boostTier: number
   boostMultiplier: number
-  levelsCount: number
-  levelThresholds: number[]
-  /** Уровень, на котором ждёт бустер; -1 — ставка без бустера. */
-  boostLevelIndex: number
-  resultHash: string
-  multiplier: number
-  levelsCrossed: number
+  /** Сработал ли бустер. Уровень общий, множитель — свой у каждого участника. */
   boostApplied: boolean
-  points: number
-  elapsedMs: number
+  autoCashoutAt: number | null
   cashedOutAt: number | null
   winAmount: number
+  points: number
+}
+
+/**
+ * Снимок текущего раунда темы. Приходит и в /api/state, и в ответе на ставку —
+ * одного набора полей хватает, чтобы собрать экран целиком после F5.
+ */
+export interface RoundView {
+  roundId: string
+  theme: Theme
+  phase: RoundPhase
+  /** Сколько осталось до конца фазы. В полёте равно нулю — там ждём краха. */
+  phaseRemainingMs: number
+  levelsCount: number
+  levelThresholds: number[]
+  /** Уровень, на котором ждёт бустер; -1 — бустера в раунде нет. */
+  boostLevelIndex: number
+  resultHash: string
+  /** Коэффициент один на всех: бустер умножает не его, а личную выплату. */
+  multiplier: number
+  levelsCrossed: number
+  elapsedMs: number
+  betCount: number
+  totalStake: number
+  bets: BetView[]
+  myBet: BetView | null
+  /** Ставка, сделанная не вовремя и ждущая следующего раунда. */
+  queuedBet: BetView | null
 }
 
 export interface GameState {
   user: User
   balance: number
   theme: Theme
-  activeRound: ActiveRoundView | null
+  /** Текущий раунд каждой темы — у зелёной и красной свои независимые циклы. */
+  rounds: Record<Theme, RoundView>
   stake: StakeLimits
   boostOptions: BoostOption[]
   levelsCount: Record<Theme, number>
 }
 
-export interface StartedRound {
+/** Ответ на приём ставки. queued — приём был закрыт, ставка ждёт следующего раунда. */
+export interface PlacedBet {
+  queued: boolean
+  theme: Theme
+  roundId: string | null
+  balanceAfter: number
+  round: RoundView
+}
+
+/** Завершённый раунд со всеми участниками — для экрана «недавние раунды». */
+export interface RecentRound {
   roundId: string
   theme: Theme
-  stake: number
-  boostFee: number
-  totalPaid: number
-  boostMultiplier: number
-  levelsCount: number
-  levelThresholds: number[]
-  /** Уровень, на котором ждёт бустер; -1 — ставка без бустера. */
+  crashAt: number
+  betCount: number
+  totalStake: number
+  totalWin: number
   boostLevelIndex: number
-  /** Порог автовывода, если игрок его задал. */
-  autoCashoutAt: number | null
   resultHash: string
-  balanceAfter: number
+  serverSeed: string
+  crashPointRaw: string
+  finishedAt: string
+  participants: (BetView & { outcome: Outcome })[]
 }
 
 export interface CashoutResult {
@@ -91,6 +126,7 @@ export interface CashoutResult {
   cashedOutAt: number
   winAmount: number
   pointsSoFar: number
+  balance: number
 }
 
 export interface RoundResult {
@@ -219,6 +255,8 @@ export interface AdminReport {
 export interface GameConfig {
   /** Баланс нового аккаунта; до него же пополняет POST /api/demo/topup. */
   demo_user: { starting_balance: number }
+  /** Длительности фаз непрерывного цикла раундов. */
+  round_cycle: { betting_seconds: number; result_seconds: number; speed_factor: number }
   stake: { min: number; max: number; step: number; presets: number[] }
   boost_options: { id: string; boost_tier: number; price_factor: number }[]
   themes: Record<
@@ -256,19 +294,58 @@ export interface GameConfig {
   dev_mode: { enabled: boolean }
 }
 
-/** События WebSocket-топика /topic/round/{roundId}. */
+/**
+ * События WebSocket-топика /topic/round/{theme}.
+ *
+ * Топик теперь на тему, а не на раунд: цикл непрерывный, и подписка переживает
+ * смену раундов. Событие phase — единственный источник правды о том, что
+ * происходит сейчас, по нему экран и переключается.
+ */
 export type RoundEvent =
-  | { type: 'tick'; multiplier: number; elapsedMs: number }
-  | { type: 'level'; levelIndex: number; pointsAwarded: number; totalPoints: number }
-  | { type: 'boost'; levelIndex: number; boostMultiplier: number; multiplierAfter: number }
-  | { type: 'cashout'; multiplier: number; winAmount: number; points: number; auto: boolean }
   | {
-      type: 'round.finished'
-      crashAt: number
-      outcome: Outcome
+      type: 'phase'
+      phase: RoundPhase
+      roundId: string
+      phaseRemainingMs: number
+      resultHash: string
+      betCount: number
+      totalStake: number
+    }
+  | {
+      type: 'bet'
+      betCount: number
+      totalStake: number
+      playerId?: string
+      player?: string
+      stake?: number
+      boostTier?: number
+    }
+  | { type: 'tick'; multiplier: number; elapsedMs: number }
+  | { type: 'level'; levelIndex: number; pointsAwarded: number }
+  | {
+      type: 'boost'
+      levelIndex: number
+      /** У кого бустер сработал — у остальных участников его просто не было. */
+      fired: { playerId: string; player: string; boostMultiplier: number }[]
+    }
+  | {
+      type: 'cashout'
+      playerId: string
+      player: string
+      multiplier: number
       winAmount: number
       points: number
+      auto: boolean
+    }
+  | {
+      type: 'round.finished'
+      roundId: string
+      crashAt: number
       serverSeed: string
+      crashPointRaw: string
+      boostLevelIndex: number
+      betCount: number
+      totalWin: number
     }
 
 export class ApiError extends Error {

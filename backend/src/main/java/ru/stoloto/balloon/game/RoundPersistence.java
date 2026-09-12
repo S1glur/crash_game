@@ -7,6 +7,8 @@ import ru.stoloto.balloon.config.GameConfig;
 import ru.stoloto.balloon.config.GameConfigService;
 import ru.stoloto.balloon.domain.PlayerEntity;
 import ru.stoloto.balloon.domain.PlayerRepository;
+import ru.stoloto.balloon.domain.GameRoundEntity;
+import ru.stoloto.balloon.domain.GameRoundRepository;
 import ru.stoloto.balloon.domain.RoundEntity;
 import ru.stoloto.balloon.domain.RoundRepository;
 
@@ -23,13 +25,16 @@ import ru.stoloto.balloon.domain.RoundRepository;
 public class RoundPersistence {
 
     private final RoundRepository roundRepository;
+    private final GameRoundRepository gameRoundRepository;
     private final PlayerRepository playerRepository;
     private final GameConfigService configService;
 
     public RoundPersistence(RoundRepository roundRepository,
+                            GameRoundRepository gameRoundRepository,
                             PlayerRepository playerRepository,
                             GameConfigService configService) {
         this.roundRepository = roundRepository;
+        this.gameRoundRepository = gameRoundRepository;
         this.playerRepository = playerRepository;
         this.configService = configService;
     }
@@ -75,35 +80,66 @@ public class RoundPersistence {
         playerRepository.save(player);
     }
 
+    /**
+     * Сохраняет завершённый раунд целиком: сам полёт и все ставки в нём.
+     *
+     * Раунд пишется даже когда участников не было — цикл крутится непрерывно, и
+     * пустой раунд тоже состоялся. Иначе история выглядела бы прерывистой.
+     */
     @Transactional
-    public RoundEntity save(ActiveRound round, double crashAt, String outcomeType,
-                            GameConfig.Reward reward) {
-        RoundEntity entity = new RoundEntity(
+    public void saveRound(SharedRound round, double crashAt) {
+        gameRoundRepository.save(new GameRoundEntity(
                 round.roundId(),
-                round.playerId(),
                 round.theme(),
-                round.stake(),
-                round.boostFee(),
-                outcomeType,
-                round.cashedOutAt() == null ? null : RoundService.round2(round.cashedOutAt()),
                 crashAt,
-                round.winAmount(),
-                round.points(),
-                round.boostTier(),
-                round.boostApplied(),
-                reward.id(),
-                reward.type(),
+                round.betCount(),
+                round.bets().stream().mapToInt(Bet::totalPaid).sum(),
+                round.totalWin(),
                 round.outcome().hash(),
                 round.outcome().serverSeed(),
                 round.outcome().crashPoint(),
-                round.outcome().boostLevelIndex());
+                round.outcome().boostLevelIndex()));
 
-        roundRepository.save(entity);
+        for (Bet bet : round.bets()) {
+            roundRepository.save(new RoundEntity(
+                    round.roundId(),
+                    bet.playerId(),
+                    round.theme(),
+                    bet.stake(),
+                    bet.boostFee(),
+                    bet.outcome(),
+                    bet.cashedOutAt() == null ? null : RoundService.round2(bet.cashedOutAt()),
+                    crashAt,
+                    bet.winAmount(),
+                    bet.points(),
+                    bet.boostTier(),
+                    bet.boostApplied(),
+                    bet.rewardId(),
+                    bet.rewardType(),
+                    round.outcome().hash(),
+                    round.outcome().serverSeed(),
+                    round.outcome().crashPoint(),
+                    round.outcome().boostLevelIndex()));
 
-        PlayerEntity player = player(round.playerId());
-        player.addPoints(round.points());
+            PlayerEntity player = player(bet.playerId());
+            player.addPoints(bet.points());
+            playerRepository.save(player);
+        }
+    }
+
+    /** Списание ставки при её приёме. Отдельный метод — ставку принимает REST-поток. */
+    @Transactional
+    public void chargeBet(String playerId, int amount) {
+        PlayerEntity player = player(playerId);
+        player.withdraw(amount);
         playerRepository.save(player);
+    }
 
-        return entity;
+    /** Возврат ставки при отмене до взлёта. */
+    @Transactional
+    public void refundBet(String playerId, int amount) {
+        PlayerEntity player = player(playerId);
+        player.deposit(amount);
+        playerRepository.save(player);
     }
 }

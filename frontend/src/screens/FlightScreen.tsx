@@ -7,7 +7,7 @@ import { useGame } from '../store/gameStore'
 import { fmtInt, fmtMult, levelProgress } from '../utils/format'
 
 export function FlightScreen() {
-  const flight = useGame((s) => s.flight)
+  const round = useGame((s) => s.round)
   const theme = useGame((s) => s.theme)
   const balance = useGame((s) => s.balance)
   const config = useGame((s) => s.config)
@@ -18,6 +18,32 @@ export function FlightScreen() {
   const [multiplier, setMultiplier] = useState(1)
   const [showHint, setShowHint] = useState(!onboardingSeen)
   const [levelFlash, setLevelFlash] = useState<{ id: number; points: number } | null>(null)
+
+  /*
+    Раунд общий, экран — личный. Коэффициент на табло один на всех: это
+    прогресс полёта. Бустер умножает не его, а выплату конкретного игрока,
+    поэтому всё «моё» берётся из myBet и подставляется сюда одним местом.
+  */
+  const myBet = round?.myBet ?? null
+  const flight = round && {
+    thresholds: round.thresholds,
+    levelsCrossed: round.levelsCrossed,
+    boostLevelIndex: round.boostLevelIndex,
+    resultHash: round.resultHash,
+    serverMultiplier: round.serverMultiplier,
+    serverMultiplierAt: round.serverMultiplierAt,
+    serverElapsedMs: round.serverElapsedMs,
+    finished: round.phase === 'RESULT',
+    stake: myBet?.stake ?? 0,
+    boostFee: myBet?.boostFee ?? 0,
+    boostMultiplier: myBet?.boostMultiplier ?? 1,
+    boostApplied: myBet?.boostApplied ?? false,
+    cashedOutAt: myBet?.cashedOutAt ?? null,
+    winAmount: myBet?.winAmount ?? 0,
+    points: myBet?.points ?? 0,
+    autoCashoutAt: myBet?.autoCashoutAt ?? null,
+  }
+
   const lastLevelRef = useRef(0)
 
   const growthRate = config?.crash_model.multiplier_growth_rate ?? 0.06
@@ -46,15 +72,14 @@ export function FlightScreen() {
   useEffect(() => {
     let frame = 0
     const loop = () => {
-      const current = useGame.getState().flight
+      const current = useGame.getState().round
       if (current) {
         const sinceTick = (performance.now() - current.serverMultiplierAt) / 1000
         const roundTime = current.serverElapsedMs / 1000 + sinceTick
         const rate = growthRate * Math.pow(accelBase, roundTime)
-        const ceiling = maxMultiplier * (current.boostApplied ? current.boostMultiplier : 1)
-        const projected = current.finished
+        const projected = current.phase !== 'FLYING'
           ? current.serverMultiplier
-          : Math.min(ceiling, current.serverMultiplier * Math.exp(rate * sinceTick))
+          : Math.min(maxMultiplier, current.serverMultiplier * Math.exp(rate * sinceTick))
         setMultiplier(projected)
       }
       frame = requestAnimationFrame(loop)
@@ -96,10 +121,14 @@ export function FlightScreen() {
     return Math.min(1, levelProgress(flight.serverMultiplier, flight.thresholds) / flight.thresholds.length)
   }, [flight])
 
-  if (!flight) return null
+  if (!round || !flight) return null
 
-  const canCashout = flight.levelsCrossed >= 1 && flight.cashedOutAt === null && !flight.finished
-  const currentWin = Math.floor(flight.stake * multiplier)
+  const canCashout =
+    myBet !== null &&
+    round.phase === 'FLYING' &&
+    flight.levelsCrossed >= 1 &&
+    flight.cashedOutAt === null
+  const currentWin = Math.floor(flight.stake * multiplier * (flight.boostApplied ? flight.boostMultiplier : 1))
   const boostedWin = Math.floor(flight.stake * multiplier * flight.boostMultiplier)
   const cashedOut = flight.cashedOutAt !== null
 
@@ -270,7 +299,7 @@ export function FlightScreen() {
                   Забрали {fmtInt(flight.winAmount)} на {fmtMult(flight.cashedOutAt!)}
                 </div>
                 <div style={{ fontSize: 12, fontWeight: 600, marginTop: 4, opacity: 0.75 }}>
-                  {flight.cashedOutAuto ? 'Автовывод сработал — шар ещё летит' : 'Могли бы забрать больше — шар ещё летит'}
+                  Шар ещё летит — итог уже зафиксирован
                 </div>
               </div>
             )}

@@ -7,12 +7,24 @@ import jakarta.persistence.Table;
 
 import java.time.Instant;
 
-/** Завершённый раунд — попадает в историю игр (обязательный пункт сценария 1). */
+/**
+ * Ставка одного игрока в завершённом раунде — строка общей истории игр
+ * (обязательный пункт сценария 1).
+ *
+ * Раунд теперь общий, поэтому строк с одним roundId столько, сколько было
+ * участников. Ключ составной (roundId:playerId): по нему запись находится
+ * без лишнего индекса, а сам roundId остаётся обычной колонкой, по которой
+ * собирается список участников раунда.
+ */
 @Entity
 @Table(name = "rounds")
 public class RoundEntity {
 
     @Id
+    private String id;
+
+    /** Общий раунд, в котором сделана ставка. Одинаков у всех его участников. */
+    @Column(nullable = false)
     private String roundId;
 
     /** Владелец раунда. Без него история общая и обезличенная. */
@@ -62,6 +74,7 @@ public class RoundEntity {
                        String outcome, Double cashedOutAt, double crashAt, int winAmount, int points,
                        int boostTier, boolean boostApplied, String rewardId, String rewardType,
                        String resultHash, long serverSeed, double crashPointRaw, int boostLevelIndex) {
+        this.id = roundId + ":" + playerId;
         this.roundId = roundId;
         this.playerId = playerId;
         this.theme = theme;
@@ -83,6 +96,7 @@ public class RoundEntity {
         this.finishedAt = Instant.now();
     }
 
+    public String getId() { return id; }
     public String getRoundId() { return roundId; }
     public String getPlayerId() { return playerId; }
     public String getTheme() { return theme; }

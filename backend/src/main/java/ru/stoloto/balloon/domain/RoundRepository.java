@@ -13,6 +13,12 @@ public interface RoundRepository extends JpaRepository<RoundEntity, String> {
      */
     List<RoundEntity> findAllByOrderByFinishedAtDesc(Limit limit);
 
+    /** Участники одного раунда — кто сколько поставил и сколько забрал. */
+    List<RoundEntity> findAllByRoundIdOrderByWinAmountDesc(String roundId);
+
+    /** Ставки в нескольких раундах сразу — для списка недавних раундов. */
+    List<RoundEntity> findAllByRoundIdIn(List<String> roundIds);
+
     /** История одного игрока — для личной статистики. */
     List<RoundEntity> findAllByPlayerIdOrderByFinishedAtDesc(String playerId, Limit limit);
 }

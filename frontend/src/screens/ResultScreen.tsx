@@ -15,13 +15,12 @@ export function ResultScreen() {
   const boostOptions = useGame((s) => s.boostOptions)
   const upsellShown = useGame((s) => s.upsellShown)
   const markUpsellShown = useGame((s) => s.markUpsellShown)
-  const startWithBoost = useGame((s) => s.startWithBoost)
-  const playAgain = useGame((s) => s.playAgain)
-  const repeatBet = useGame((s) => s.repeatBet)
-  const goToTheme = useGame((s) => s.goToTheme)
+  const betWithBoost = useGame((s) => s.betWithBoost)
+  const dismissResult = useGame((s) => s.dismissResult)
+  const placeBet = useGame((s) => s.placeBet)
+  const round = useGame((s) => s.round)
 
-  const autoAdvanceSec = config?.ui.result_screen_auto_advance_sec ?? 10
-  const [countdown, setCountdown] = useState(autoAdvanceSec)
+  const [countdown, setCountdown] = useState(0)
   const [upsellOpen, setUpsellOpen] = useState(false)
 
   /**
@@ -54,26 +53,18 @@ export function ResultScreen() {
     return () => clearTimeout(timer)
   }, [upsellOption, upsellShown, markUpsellShown])
 
+  /*
+    Отсчёт больше не наш: экран закрывает сам цикл раундов, когда открывает
+    приём ставок в следующий. Своим таймером мы бы уводили игрока раньше
+    времени — и иногда прямо из-под открытого апсейла.
+  */
   useEffect(() => {
-    setCountdown(autoAdvanceSec)
-  }, [result?.roundId, autoAdvanceSec])
-
-  useEffect(() => {
-    // Пока висит апсейл, отсчёт заморожен: иначе экран уедет из-под окна,
-    // и у предложения не будет обещанных десяти секунд.
-    if (upsellOpen) return
-    const timer = setInterval(() => {
-      setCountdown((value) => {
-        if (value <= 1) {
-          clearInterval(timer)
-          goToTheme()
-          return 0
-        }
-        return value - 1
-      })
-    }, 1000)
+    if (!round) return
+    const tick = () => setCountdown(Math.max(0, Math.ceil((round.phaseEndsAt - Date.now()) / 1000)))
+    tick()
+    const timer = setInterval(tick, 250)
     return () => clearInterval(timer)
-  }, [upsellOpen, goToTheme])
+  }, [round])
 
   const breakdown = useMemo(() => {
     if (!result || !config) return null
@@ -333,15 +324,23 @@ export function ResultScreen() {
               flexWrap: 'wrap',
             }}
           >
-            <button className="btn btn-primary" style={{ height: 60, padding: '0 46px' }} onClick={playAgain}>
-              Играть снова
+            <button
+              className="btn btn-primary"
+              style={{ height: 60, padding: '0 46px' }}
+              onClick={dismissResult}
+            >
+              К ставкам
             </button>
-            <button className="btn btn-ghost" style={{ height: 60, padding: '0 30px' }} onClick={() => void repeatBet()}>
+            <button
+              className="btn btn-ghost"
+              style={{ height: 60, padding: '0 30px' }}
+              onClick={() => void placeBet()}
+            >
               Повторить · {fmtInt(result.totalPaid)}
             </button>
             <div className="grow" />
             <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.5 }}>
-              Возврат к выбору темы через
+              {round?.phase === 'RESULT' ? 'Следующий раунд через' : 'Приём ставок ещё'}
             </span>
             <span
               className="num"
@@ -371,7 +370,7 @@ export function ResultScreen() {
           timeoutSec={config?.upsell.popup_timeout_sec ?? 10}
           onAccept={() => {
             setUpsellOpen(false)
-            void startWithBoost(upsellOption.id)
+            void betWithBoost(upsellOption.id)
           }}
           onClose={() => setUpsellOpen(false)}
         />

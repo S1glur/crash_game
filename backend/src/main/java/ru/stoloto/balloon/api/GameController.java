@@ -13,14 +13,17 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import ru.stoloto.balloon.config.GameConfig;
 import ru.stoloto.balloon.config.GameConfigService;
+import ru.stoloto.balloon.domain.GameRoundEntity;
+import ru.stoloto.balloon.domain.GameRoundRepository;
 import ru.stoloto.balloon.domain.PlayerEntity;
 import ru.stoloto.balloon.domain.PlayerRepository;
 import ru.stoloto.balloon.domain.RoundEntity;
 import ru.stoloto.balloon.domain.RoundRepository;
-import ru.stoloto.balloon.game.ActiveRound;
+import ru.stoloto.balloon.game.Bet;
 import ru.stoloto.balloon.game.LeaderboardService;
 import ru.stoloto.balloon.game.RoundPersistence;
 import ru.stoloto.balloon.game.RoundService;
+import ru.stoloto.balloon.game.SharedRound;
 import ru.stoloto.balloon.security.CurrentPlayer;
 
 import java.io.IOException;
@@ -32,6 +35,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /** REST-часть контракта из docs/api.md. Все операции идут от имени вошедшего игрока. */
@@ -43,6 +47,7 @@ public class GameController {
     private final RoundPersistence persistence;
     private final GameConfigService configService;
     private final RoundRepository roundRepository;
+    private final GameRoundRepository gameRoundRepository;
     private final PlayerRepository playerRepository;
     private final CurrentPlayer currentPlayer;
     private final LeaderboardService leaderboardService;
@@ -52,6 +57,7 @@ public class GameController {
                           RoundPersistence persistence,
                           GameConfigService configService,
                           RoundRepository roundRepository,
+                          GameRoundRepository gameRoundRepository,
                           PlayerRepository playerRepository,
                           CurrentPlayer currentPlayer,
                           LeaderboardService leaderboardService,
@@ -60,6 +66,7 @@ public class GameController {
         this.persistence = persistence;
         this.configService = configService;
         this.roundRepository = roundRepository;
+        this.gameRoundRepository = gameRoundRepository;
         this.playerRepository = playerRepository;
         this.currentPlayer = currentPlayer;
         this.leaderboardService = leaderboardService;
@@ -69,6 +76,9 @@ public class GameController {
     /**
      * Стартовое состояние при загрузке фронта. Отвечает 401, если сессии нет —
      * по этому ответу фронт понимает, что нужно показать экран входа.
+     *
+     * Отдаёт текущий раунд КАЖДОЙ темы: цикл идёт непрерывно, и клиент должен
+     * увидеть фазу и обратный отсчёт сразу, не дожидаясь первого WS-события.
      */
     @GetMapping("/state")
     public Map<String, Object> state() {
@@ -82,7 +92,7 @@ public class GameController {
           Варианты бустера отдаём вместе с priceFactor, а не с готовой ценой:
           цена зависит от суммы ставки, которую игрок ещё не выбрал. Клиент
           считает её для подсказки, но окончательное слово за сервером — он
-          пересчитывает доплату при старте раунда.
+          пересчитывает доплату при приёме ставки.
         */
         List<Map<String, Object>> boostOptions = config.boostOptions().stream()
                 .map(option -> Map.<String, Object>of(
@@ -99,13 +109,15 @@ public class GameController {
         stake.put("step", limits.step());
         stake.put("presets", limits.presets());
 
-        ActiveRound active = roundService.currentActive(player.getId());
+        Map<String, Object> rounds = new LinkedHashMap<>();
+        roundService.allRounds().forEach((name, round) ->
+                rounds.put(name, roundView(round, player.getId())));
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("user", userView(player));
         body.put("balance", player.getBalance());
         body.put("theme", config.themes().containsKey("green") ? "green" : config.themes().keySet().iterator().next());
-        body.put("activeRound", active == null ? null : activeRoundView(active));
+        body.put("rounds", rounds);
         body.put("stake", stake);
         body.put("boostOptions", boostOptions);
         body.put("levelsCount", levelsCount);
@@ -132,16 +144,14 @@ public class GameController {
     }
 
     /**
-     * История завершённых раундов всех участников прототипа — этого требует
-     * сценарий 1. Имя игрока идёт вместе с раундом: без него в общей истории
-     * не отличить свой полёт от чужого.
+     * История ставок всех участников прототипа — этого требует сценарий 1.
+     * Имя игрока идёт вместе со ставкой: без него в общей истории не отличить
+     * свой полёт от чужого.
      */
     @GetMapping("/history")
     public Map<String, Object> history(@RequestParam(defaultValue = "20") int limit) {
         currentPlayer.require();
-
-        Map<String, String> names = new HashMap<>();
-        playerRepository.findAll().forEach(player -> names.put(player.getId(), player.getDisplayName()));
+        Map<String, String> names = playerNames();
 
         List<Map<String, Object>> items = new ArrayList<>();
         for (RoundEntity entity : roundRepository.findAllByOrderByFinishedAtDesc(Limit.of(limit))) {
@@ -158,6 +168,70 @@ public class GameController {
             item.put("winAmount", entity.getWinAmount());
             item.put("points", entity.getPoints());
             item.put("finishedAt", entity.getFinishedAt().toString());
+            items.add(item);
+        }
+        return Map.of("items", items);
+    }
+
+    /**
+     * Недавние раунды — кто сколько поставил и сколько забрал.
+     *
+     * Список строится по таблице самих раундов, а не группировкой ставок:
+     * раунды идут непрерывно, и раунд, в котором никто не играл, тоже
+     * состоялся. Иначе цикл выглядел бы прерывистым.
+     */
+    @GetMapping("/rounds/recent")
+    public Map<String, Object> recentRounds(@RequestParam(defaultValue = "20") int limit,
+                                            @RequestParam(required = false) String theme) {
+        currentPlayer.require();
+
+        List<GameRoundEntity> rounds = theme == null || theme.isBlank()
+                ? gameRoundRepository.findAllByOrderByFinishedAtDesc(Limit.of(limit))
+                : gameRoundRepository.findAllByThemeOrderByFinishedAtDesc(theme, Limit.of(limit));
+
+        Map<String, List<RoundEntity>> betsByRound = new HashMap<>();
+        List<String> ids = rounds.stream().map(GameRoundEntity::getRoundId).toList();
+        if (!ids.isEmpty()) {
+            for (RoundEntity bet : roundRepository.findAllByRoundIdIn(ids)) {
+                betsByRound.computeIfAbsent(bet.getRoundId(), key -> new ArrayList<>()).add(bet);
+            }
+        }
+
+        Map<String, String> names = playerNames();
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (GameRoundEntity round : rounds) {
+            List<Map<String, Object>> participants = new ArrayList<>();
+            for (RoundEntity bet : betsByRound.getOrDefault(round.getRoundId(), List.of())) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("playerId", bet.getPlayerId());
+                row.put("player", names.getOrDefault(bet.getPlayerId(), "—"));
+                row.put("stake", bet.getStake());
+                row.put("boostFee", bet.getBoostFee());
+                row.put("totalPaid", bet.getTotalPaid());
+                row.put("boostTier", bet.getBoostTier());
+                row.put("boostApplied", bet.isBoostApplied());
+                row.put("outcome", bet.getOutcome());
+                row.put("cashedOutAt", bet.getCashedOutAt());
+                row.put("winAmount", bet.getWinAmount());
+                row.put("points", bet.getPoints());
+                participants.add(row);
+            }
+            participants.sort((a, b) -> Integer.compare(
+                    (int) b.get("winAmount"), (int) a.get("winAmount")));
+
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("roundId", round.getRoundId());
+            item.put("theme", round.getTheme());
+            item.put("crashAt", round.getCrashAt());
+            item.put("betCount", round.getBetCount());
+            item.put("totalStake", round.getTotalStake());
+            item.put("totalWin", round.getTotalWin());
+            item.put("boostLevelIndex", round.getBoostLevelIndex());
+            item.put("resultHash", round.getResultHash());
+            item.put("serverSeed", String.valueOf(round.getServerSeed()));
+            item.put("crashPointRaw", String.format(Locale.ROOT, "%.6f", round.getCrashPointRaw()));
+            item.put("finishedAt", round.getFinishedAt().toString());
+            item.put("participants", participants);
             items.add(item);
         }
         return Map.of("items", items);
@@ -181,58 +255,59 @@ public class GameController {
         return body;
     }
 
-    /** Старт раунда: списывает ставку, отдаёт id раунда и provably-fair хеш. */
-    @PostMapping("/round/start")
-    public Map<String, Object> startRound(@RequestBody StartRequest request) {
+    /**
+     * Приём ставки в текущий раунд темы. Если приём уже закрыт, ставка встаёт
+     * в очередь на следующий раунд — тогда в ответе queued = true.
+     */
+    @PostMapping("/round/bet")
+    public Map<String, Object> placeBet(@RequestBody BetRequest request) {
         PlayerEntity player = currentPlayer.require();
-        ActiveRound round = roundService.start(
-                player, request.theme(), request.stake(), request.boostOptionId(), request.seed(),
-                request.speedFactor(), request.autoCashoutAt());
+        SharedRound joined = roundService.placeBet(player, request.theme(), request.stake(),
+                request.boostOptionId(), request.autoCashoutAt());
 
-        GameConfig config = configService.get();
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("roundId", round.roundId());
-        body.put("theme", round.theme());
-        body.put("stake", round.stake());
-        body.put("boostFee", round.boostFee());
-        body.put("totalPaid", round.totalPaid());
-        body.put("boostMultiplier", config.boostValue(round.boostTier()));
-        body.put("levelsCount", round.thresholds().size());
-        body.put("levelThresholds", round.thresholds());
-        // Позиция бустера раскрывается сразу: ТЗ описывает механику «ждать уровня с
-        // бустером, рискуя крахом», а ждать невидимый маркер игрок не может.
-        // Точку краха это не раскрывает — она в hash и остаётся на сервере.
-        body.put("boostLevelIndex", round.outcome().boostLevelIndex());
-        body.put("autoCashoutAt", round.autoCashoutAt());
-        body.put("resultHash", round.outcome().hash());
+        body.put("queued", joined == null);
+        body.put("theme", request.theme());
+        body.put("roundId", joined == null ? null : joined.roundId());
         body.put("balanceAfter", persistence.player(player.getId()).getBalance());
+        body.put("round", roundView(roundService.round(request.theme()), player.getId()));
+        return body;
+    }
+
+    /** Отмена ставки до взлёта — с возвратом всей списанной суммы. */
+    @PostMapping("/round/{theme}/cancel")
+    public Map<String, Object> cancelBet(@PathVariable String theme) {
+        PlayerEntity player = currentPlayer.require();
+        roundService.cancelBet(player.getId(), theme);
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("balanceAfter", persistence.player(player.getId()).getBalance());
+        body.put("round", roundView(roundService.round(theme), player.getId()));
         return body;
     }
 
     /** Фиксация выигрыша по текущему серверному коэффициенту. */
-    @PostMapping("/round/{roundId}/cashout")
-    public Map<String, Object> cashout(@PathVariable String roundId) {
+    @PostMapping("/round/{theme}/cashout")
+    public Map<String, Object> cashout(@PathVariable String theme) {
         PlayerEntity player = currentPlayer.require();
-        ActiveRound round = roundService.cashout(player.getId(), roundId);
+        Bet bet = roundService.cashout(player.getId(), theme);
+
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("roundId", round.roundId());
-        body.put("cashedOutAt", RoundService.round2(round.cashedOutAt()));
-        body.put("winAmount", round.winAmount());
-        body.put("pointsSoFar", round.points());
+        body.put("roundId", roundService.round(theme).roundId());
+        body.put("cashedOutAt", RoundService.round2(bet.cashedOutAt()));
+        body.put("winAmount", bet.winAmount());
+        body.put("pointsSoFar", bet.points());
+        body.put("balance", persistence.player(player.getId()).getBalance());
         return body;
     }
 
-    /** Итог завершённого раунда — экран результата берёт данные отсюда. */
+    /** Личный итог завершённого раунда — экран результата берёт данные отсюда. */
     @GetMapping("/round/{roundId}")
     public Map<String, Object> roundResult(@PathVariable String roundId) {
         PlayerEntity player = currentPlayer.require();
-        RoundEntity entity = roundRepository.findById(roundId)
-                .orElseThrow(() -> new ApiException("ROUND_NOT_ACTIVE", "Раунд не найден: " + roundId));
-
-        // Чужой раунд виден только администратору — он же разбирает спорные случаи.
-        if (!entity.getPlayerId().equals(player.getId()) && !player.isAdmin()) {
-            throw new ApiException("ROUND_NOT_ACTIVE", "Раунд не найден: " + roundId);
-        }
+        RoundEntity entity = roundRepository.findById(roundId + ":" + player.getId())
+                .orElseThrow(() -> new ApiException("ROUND_NOT_ACTIVE",
+                        "В раунде " + roundId + " у вас не было ставки"));
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("roundId", entity.getRoundId());
@@ -246,13 +321,13 @@ public class GameController {
         body.put("winAmount", entity.getWinAmount());
         body.put("points", entity.getPoints());
         body.put("reward", Map.of("type", entity.getRewardType(), "id", entity.getRewardId()));
-        body.put("balance", persistence.player(entity.getPlayerId()).getBalance());
+        body.put("balance", persistence.player(player.getId()).getBalance());
 
         // Provably fair: всё, что нужно игроку, чтобы пересчитать resultHash самому.
         // Строка для проверки: sha256(crashPointRaw|boostLevelIndex|serverSeed).
         body.put("resultHash", entity.getResultHash());
         body.put("serverSeed", String.valueOf(entity.getServerSeed()));
-        body.put("crashPointRaw", String.format(java.util.Locale.ROOT, "%.6f", entity.getCrashPointRaw()));
+        body.put("crashPointRaw", String.format(Locale.ROOT, "%.6f", entity.getCrashPointRaw()));
         body.put("boostLevelIndex", entity.getBoostLevelIndex());
         return body;
     }
@@ -285,6 +360,12 @@ public class GameController {
         return configService.save(rawJson);
     }
 
+    private Map<String, String> playerNames() {
+        Map<String, String> names = new HashMap<>();
+        playerRepository.findAll().forEach(player -> names.put(player.getId(), player.getDisplayName()));
+        return names;
+    }
+
     private static Map<String, Object> userView(PlayerEntity player) {
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("id", player.getId());
@@ -297,41 +378,67 @@ public class GameController {
     }
 
     /**
-     * Состояние летящего раунда — тот же набор полей, что отдаёт /round/start,
-     * чтобы после перезагрузки страницы фронт мог восстановить экран полёта
-     * целиком, а не частично.
+     * Снимок текущего раунда темы. Того же набора полей хватает и для первой
+     * загрузки, и для восстановления экрана после F5 — клиент собирает картинку
+     * целиком, а не по кускам из последующих событий.
      */
-    private Map<String, Object> activeRoundView(ActiveRound round) {
+    private Map<String, Object> roundView(SharedRound round, String playerId) {
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("roundId", round.roundId());
         view.put("theme", round.theme());
-        view.put("stake", round.stake());
-        view.put("boostFee", round.boostFee());
-        view.put("totalPaid", round.totalPaid());
-        view.put("boostMultiplier", configService.get().boostValue(round.boostTier()));
+        view.put("phase", round.phase().name());
+        view.put("phaseRemainingMs", round.phaseRemainingMillis());
         view.put("levelsCount", round.thresholds().size());
         view.put("levelThresholds", round.thresholds());
+        // Позиция бустера раскрывается сразу: ТЗ описывает механику «ждать уровня
+        // с бустером, рискуя крахом», а ждать невидимый маркер игрок не может.
+        // Точку краха это не раскрывает — она в hash и остаётся на сервере.
         view.put("boostLevelIndex", round.outcome().boostLevelIndex());
         view.put("resultHash", round.outcome().hash());
-        view.put("multiplier", RoundService.round2(round.effectiveMultiplier()));
+        view.put("multiplier", RoundService.round2(round.multiplier()));
         view.put("levelsCrossed", round.levelsCrossed());
-        view.put("boostApplied", round.boostApplied());
-        view.put("points", round.points());
         view.put("elapsedMs", round.elapsedMillis());
-        view.put("autoCashoutAt", round.autoCashoutAt());
-        view.put("cashedOutAt", round.cashedOutAt());
-        view.put("winAmount", round.winAmount());
+        view.put("betCount", round.betCount());
+        view.put("totalStake", round.totalStake());
+        view.put("bets", round.bets().stream().map(GameController::betView).toList());
+
+        Bet mine = round.bet(playerId);
+        Bet queued = roundService.queuedBet(round.theme(), playerId);
+        view.put("myBet", mine == null ? null : betView(mine));
+        view.put("queuedBet", queued == null ? null : betView(queued));
         return view;
     }
 
-    /** Тело POST /api/round/start. Поля seed и speedFactor действуют только в dev-режиме. */
-    public record StartRequest(
+    private static Map<String, Object> betView(Bet bet) {
+        Map<String, Object> view = new LinkedHashMap<>();
+        view.put("playerId", bet.playerId());
+        view.put("player", bet.playerName());
+        view.put("stake", bet.stake());
+        view.put("boostFee", bet.boostFee());
+        view.put("totalPaid", bet.totalPaid());
+        view.put("boostTier", bet.boostTier());
+        view.put("boostMultiplier", bet.boostValue());
+        view.put("boostApplied", bet.boostApplied());
+        view.put("autoCashoutAt", bet.autoCashoutAt());
+        view.put("cashedOutAt", bet.cashedOutAt() == null ? null : RoundService.round2(bet.cashedOutAt()));
+        view.put("winAmount", bet.winAmount());
+        view.put("points", bet.points());
+        return view;
+    }
+
+    /**
+     * Тело POST /api/round/bet.
+     *
+     * Полей seed и speedFactor здесь больше нет: раунд общий, и один игрок не
+     * может ни задать исход, ни разогнать шар для всех остальных. Ускорение
+     * живёт в конфиге (round_cycle.speed_factor), а воспроизводимый seed
+     * задаётся админским POST /api/dev/seed.
+     */
+    public record BetRequest(
             @NotBlank String theme,
             /** Сумма ставки в баллах — свободная, в границах config.stake. */
             int stake,
             @NotBlank String boostOptionId,
-            Long seed,
-            Double speedFactor,
             /** Коэффициент, на котором сервер сам зафиксирует выигрыш. null — выключено. */
             Double autoCashoutAt
     ) {}

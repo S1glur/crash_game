@@ -10,11 +10,16 @@ import {
 import { sound } from '../utils/sound'
 import { ApiError } from '../api/types'
 import type {
+  BetView,
   BoostOption,
   GameConfig,
   HistoryItem,
   LeaderRow,
+  RecentRound,
+  RoundEvent,
+  RoundPhase,
   RoundResult,
+  RoundView,
   StakeLimits,
   Theme,
   User,
@@ -22,33 +27,36 @@ import type {
 
 export type Phase = 'loading' | 'auth' | 'theme' | 'bet' | 'flight' | 'result' | 'report'
 
-interface FlightState {
+/**
+ * Текущий раунд выбранной темы. Цикл идёт непрерывно, поэтому это состояние
+ * существует всегда — и когда игрок в нём участвует, и когда просто смотрит.
+ */
+export interface RoundState {
   roundId: string
-  /** Ставка — от неё считается выигрыш. */
-  stake: number
-  /** Доплата за бустер: сгорает всегда, в выплате не участвует. */
-  boostFee: number
-  boostMultiplier: number
-  thresholds: number[]
+  theme: Theme
+  phase: RoundPhase
+  /** Момент окончания фазы по часам браузера — из него считается обратный отсчёт. */
+  phaseEndsAt: number
   resultHash: string
-  /** Последний коэффициент, пришедший с сервера, и момент его получения — между тиками экран интерполирует сам. */
-  serverMultiplier: number
-  serverMultiplierAt: number
-  /** Время раунда на момент последнего тика — нужно экрану, чтобы продолжить разгон. */
-  serverElapsedMs: number
-  levelsCrossed: number
-  points: number
+  thresholds: number[]
   /** Где ждёт бустер. Известно до взлёта, поэтому маркер виден сразу. */
   boostLevelIndex: number | null
-  /** Сработал ли бустер — до этого маркер показываем приглушённым. */
-  boostApplied: boolean
-  /** Порог автовывода, заданный до старта (null — выключен). */
-  autoCashoutAt: number | null
-  /** Сработал ли вывод сам, а не по кнопке — для текста на экране. */
-  cashedOutAuto: boolean
-  cashedOutAt: number | null
-  winAmount: number
-  finished: boolean
+  /** Последний коэффициент с сервера и момент его получения — между тиками экран интерполирует сам. */
+  serverMultiplier: number
+  serverMultiplierAt: number
+  /** Время полёта на момент последнего тика — нужно экрану, чтобы продолжить разгон. */
+  serverElapsedMs: number
+  levelsCrossed: number
+  betCount: number
+  totalStake: number
+  /** Все участники раунда — их видно и в лобби, и в полёте. */
+  bets: BetView[]
+  /** Моя ставка в этом раунде, если я успел её сделать. */
+  myBet: BetView | null
+  /** Моя ставка, ждущая следующего раунда. */
+  queuedBet: BetView | null
+  /** Коэффициент краха — появляется, когда раунд завершился. */
+  crashAt: number | null
 }
 
 interface GameStore {
@@ -70,8 +78,12 @@ interface GameStore {
   selectedBoostId: string
   /** Выбранный игроком порог автовывода, переживает раунды. */
   autoCashout: number | null
-  flight: FlightState | null
+  /** Текущий раунд выбранной темы. */
+  round: RoundState | null
+  /** Личный итог последнего раунда, в котором я участвовал. */
   result: RoundResult | null
+  /** Недавние раунды со списком участников — для окна истории. */
+  recentRounds: RecentRound[]
   /** Очки игрока за сессию — из них строится турнирная таблица. */
   totalPoints: number
   /** Собранные за сессию награды: бэкенд их не накапливает, ведём у себя. */
@@ -94,11 +106,14 @@ interface GameStore {
   goToBet: () => void
   goToTheme: () => void
   openReport: () => void
-  startRound: () => Promise<void>
+  /** Поставить в текущий раунд; если приём закрыт — в очередь на следующий. */
+  placeBet: () => Promise<void>
+  cancelBet: () => Promise<void>
   cashout: () => Promise<void>
-  playAgain: () => void
-  repeatBet: () => Promise<void>
-  startWithBoost: (boostOptionId: string) => Promise<void>
+  /** Закрыть экран результата и вернуться к лобби, не дожидаясь нового раунда. */
+  dismissResult: () => void
+  betWithBoost: (boostOptionId: string) => Promise<void>
+  loadRecentRounds: () => Promise<void>
   topUp: () => Promise<void>
   /** Доплата за выбранный бустер при текущей ставке — та же формула, что на сервере. */
   boostFee: (boostOptionId?: string) => number
@@ -148,8 +163,9 @@ export const useGame = create<GameStore>((set, get) => ({
   stake: 50,
   selectedBoostId: 'no-boost',
   autoCashout: null,
-  flight: null,
+  round: null,
   result: null,
+  recentRounds: [],
   totalPoints: 0,
   rewards: [],
   onboardingSeen: false,
@@ -193,8 +209,9 @@ export const useGame = create<GameStore>((set, get) => ({
         user: null,
         error: null,
         balance: 0,
-        flight: null,
+        round: null,
         result: null,
+        recentRounds: [],
         history: [],
         leaders: [],
         totalPoints: 0,
@@ -216,7 +233,9 @@ export const useGame = create<GameStore>((set, get) => ({
 
   setTheme(theme) {
     sound.select()
-    set({ theme })
+    set({ theme, result: null })
+    // У каждой темы свой независимый цикл, поэтому переподписываемся.
+    void watchTheme(theme, set, get)
   },
 
   setStake(value) {
@@ -250,6 +269,7 @@ export const useGame = create<GameStore>((set, get) => ({
 
   goToBet() {
     set({ phase: 'bet' })
+    void watchTheme(get().theme, set, get)
   },
 
   goToTheme() {
@@ -260,130 +280,46 @@ export const useGame = create<GameStore>((set, get) => ({
     set({ phase: 'report' })
   },
 
-  async startRound() {
+  async placeBet() {
     const { theme, stake, selectedBoostId, autoCashout } = get()
     try {
-      const started = await api.startRound(theme, stake, selectedBoostId, {
-        autoCashoutAt: autoCashout,
-      })
-      sound.launch()
-      set({
-        balance: started.balanceAfter,
-        phase: 'flight',
-        result: null,
-        flight: {
-          roundId: started.roundId,
-          stake: started.stake,
-          boostFee: started.boostFee,
-          boostMultiplier: started.boostMultiplier,
-          thresholds: started.levelThresholds,
-          resultHash: started.resultHash,
-          serverMultiplier: 1,
-          serverMultiplierAt: performance.now(),
-          serverElapsedMs: 0,
-          levelsCrossed: 0,
-          points: 0,
-          boostLevelIndex: started.boostLevelIndex >= 0 ? started.boostLevelIndex : null,
-          boostApplied: false,
-          autoCashoutAt: started.autoCashoutAt,
-          cashedOutAuto: false,
-          cashedOutAt: null,
-          winAmount: 0,
-          finished: false,
-        },
-      })
+      const placed = await api.placeBet(theme, stake, selectedBoostId, autoCashout)
+      sound.select()
+      set({ balance: placed.balanceAfter, result: null })
+      applyRoundView(placed.round, set, get)
+    } catch (e) {
+      set({ error: (e as Error).message })
+    }
+  },
 
-      unsubscribe?.()
-      startWatchdog(started.roundId, set, get)
-      unsubscribe = subscribeToRound(started.roundId, (event) => {
-        const flight = get().flight
-        if (!flight || flight.roundId !== started.roundId) return
-
-        switch (event.type) {
-          case 'tick':
-            set({
-              flight: {
-                ...flight,
-                serverMultiplier: event.multiplier,
-                serverMultiplierAt: performance.now(),
-                serverElapsedMs: event.elapsedMs,
-              },
-            })
-            break
-
-          case 'level':
-            set({
-              flight: {
-                ...flight,
-                levelsCrossed: event.levelIndex + 1,
-                points: event.totalPoints,
-              },
-            })
-            sound.level(event.levelIndex)
-            break
-
-          case 'boost':
-            set({
-              flight: {
-                ...flight,
-                boostLevelIndex: event.levelIndex,
-                boostApplied: true,
-                serverMultiplier: event.multiplierAfter,
-                serverMultiplierAt: performance.now(),
-              },
-            })
-            sound.boost()
-            break
-
-          case 'cashout':
-            // Ручной вывод уже обновил состояние по ответу REST; повторное
-            // событие игнорируем, чтобы не перетереть его самим собой.
-            if (!flight.cashedOutAt) {
-              set({
-                flight: {
-                  ...flight,
-                  cashedOutAt: event.multiplier,
-                  cashedOutAuto: event.auto,
-                  winAmount: event.winAmount,
-                  points: event.points,
-                },
-                balance: get().balance + event.winAmount,
-              })
-              sound.cashout()
-            }
-            break
-
-          case 'round.finished': {
-            set({
-              flight: { ...get().flight!, finished: true, points: event.points },
-            })
-            sound.crash()
-            void finishRound(started.roundId, set, get)
-            break
-          }
-        }
-      })
+  async cancelBet() {
+    try {
+      const { balanceAfter, round } = await api.cancelBet(get().theme)
+      set({ balance: balanceAfter })
+      applyRoundView(round, set, get)
     } catch (e) {
       set({ error: (e as Error).message })
     }
   },
 
   async cashout() {
-    const flight = get().flight
-    if (!flight || flight.cashedOutAt !== null) return
+    const round = get().round
+    if (!round?.myBet || round.myBet.cashedOutAt !== null) return
     try {
-      const result = await api.cashout(flight.roundId)
-      const current = get().flight
-      if (!current) return
+      const result = await api.cashout(get().theme)
+      const current = get().round
+      if (!current?.myBet) return
       set({
-        flight: {
+        balance: result.balance,
+        round: {
           ...current,
-          cashedOutAt: result.cashedOutAt,
-          cashedOutAuto: false,
-          winAmount: result.winAmount,
-          points: result.pointsSoFar,
+          myBet: {
+            ...current.myBet,
+            cashedOutAt: result.cashedOutAt,
+            winAmount: result.winAmount,
+            points: result.pointsSoFar,
+          },
         },
-        balance: get().balance + result.winAmount,
       })
       sound.cashout()
     } catch (e) {
@@ -391,24 +327,26 @@ export const useGame = create<GameStore>((set, get) => ({
     }
   },
 
-  playAgain() {
-    set({ phase: 'bet', result: null, flight: null })
-  },
-
-  /** Мгновенный повтор: тот же вариант ставки, без возврата к выбору фрагмента. */
-  async repeatBet() {
-    set({ result: null, flight: null })
-    await get().startRound()
+  dismissResult() {
+    set({ result: null, phase: 'bet' })
   },
 
   /**
-   * Взлёт конкретным бустером, минуя экран выбора — так апсейл «Закрепи успех»
-   * уводит игрока прямо в полёт с предложенным фрагментом. Ставка остаётся той,
-   * что игрок выбрал сам.
+   * Ставка конкретным бустером — так апсейл «Закрепи успех» отправляет игрока
+   * в следующий раунд, не возвращая его к выбору фрагмента.
    */
-  async startWithBoost(boostOptionId) {
-    set({ selectedBoostId: boostOptionId, result: null, flight: null })
-    await get().startRound()
+  async betWithBoost(boostOptionId) {
+    set({ selectedBoostId: boostOptionId, result: null, phase: 'bet' })
+    await get().placeBet()
+  },
+
+  async loadRecentRounds() {
+    try {
+      const { items } = await api.recentRounds(20)
+      set({ recentRounds: items })
+    } catch (e) {
+      set({ error: (e as Error).message })
+    }
   },
 
   /** Пополнение демо-баланса до стартового — выход из тупика «нечем играть». */
@@ -481,89 +419,263 @@ async function loadGame(set: (partial: Partial<GameStore>) => void) {
     // Стартовая ставка — первый пресет из конфига, иначе минимальная.
     stake: state.stake.presets[0] ?? state.stake.min,
     selectedBoostId: state.boostOptions[0]?.id ?? 'no-boost',
+    round: roundFromView(state.rounds[state.theme]),
     phase: 'theme',
   })
+
+  // Цикл идёт непрерывно, поэтому подписываемся сразу: к моменту, когда игрок
+  // дойдёт до лобби, у него уже будет живой обратный отсчёт.
+  void watchTheme(state.theme, set, useGame.getState)
 }
 
-function startWatchdog(
-  roundId: string,
-  set: (partial: Partial<GameStore>) => void,
+type Setter = (partial: Partial<GameStore>) => void
+
+/** Снимок раунда с сервера -> состояние стора. */
+function roundFromView(view: RoundView): RoundState {
+  return {
+    roundId: view.roundId,
+    theme: view.theme,
+    phase: view.phase,
+    phaseEndsAt: Date.now() + view.phaseRemainingMs,
+    resultHash: view.resultHash,
+    thresholds: view.levelThresholds,
+    boostLevelIndex: view.boostLevelIndex >= 0 ? view.boostLevelIndex : null,
+    serverMultiplier: view.multiplier,
+    serverMultiplierAt: performance.now(),
+    serverElapsedMs: view.elapsedMs,
+    levelsCrossed: view.levelsCrossed,
+    betCount: view.betCount,
+    totalStake: view.totalStake,
+    bets: view.bets,
+    myBet: view.myBet,
+    queuedBet: view.queuedBet,
+    crashAt: view.phase === 'RESULT' ? view.multiplier : null,
+  }
+}
+
+function applyRoundView(view: RoundView, set: Setter, get: () => GameStore) {
+  set({ round: roundFromView(view) })
+  syncScreen(set, get)
+}
+
+/**
+ * Экран следует за фазой раунда, а не за действиями игрока: цикл идёт сам, и
+ * решает, что показывать, именно он. Экраны вне игры — вход, выбор темы,
+ * отчётность — не трогаем, иначе игрока выдёргивало бы из них каждые 15 секунд.
+ */
+function syncScreen(set: Setter, get: () => GameStore) {
+  const { phase, round } = get()
+  if (!round) return
+  if (phase !== 'bet' && phase !== 'flight' && phase !== 'result') return
+
+  if (round.phase === 'FLYING' && phase !== 'flight') {
+    set({ phase: 'flight' })
+  } else if (round.phase === 'BETTING' && phase !== 'bet') {
+    // Новый приём ставок — прошлый результат больше не на экране.
+    set({ phase: 'bet', result: null })
+  }
+}
+
+/**
+ * Подписка на цикл выбранной темы. У зелёной и красной свои независимые
+ * раунды, поэтому при смене темы подписку надо переставить, а не добавить.
+ */
+async function watchTheme(theme: Theme, set: Setter, get: () => GameStore) {
+  unsubscribe?.()
+  unsubscribe = null
+  stopWatchdog()
+
+  try {
+    const state = await api.state()
+    set({ balance: state.balance })
+    applyRoundView(state.rounds[theme], set, get)
+  } catch {
+    // Сеть недоступна — состояние подтянет сторож на следующем интервале.
+  }
+
+  startWatchdog(theme, set, get)
+  unsubscribe = subscribeToRound(theme, (event) => handleRoundEvent(theme, event, set, get))
+}
+
+function handleRoundEvent(
+  theme: Theme,
+  event: RoundEvent,
+  set: Setter,
   get: () => GameStore,
 ) {
+  const round = get().round
+  if (!round || round.theme !== theme) return
+  const myId = get().user?.id
+
+  switch (event.type) {
+    case 'phase': {
+      /*
+        Фаза сменилась — перечитываем состояние целиком. Это единственный
+        момент, когда в раунд могла въехать отложенная ставка, а угадывать
+        такое по событиям значит однажды разойтись с сервером.
+      */
+      if (event.phase === 'FLYING') sound.launch()
+      void refreshRound(theme, set, get)
+      break
+    }
+
+    case 'bet': {
+      // Чужая ставка в лобби: показываем сразу, не дожидаясь смены фазы.
+      const bets = event.playerId && event.playerId !== myId && event.player
+        ? [
+            ...round.bets.filter((bet) => bet.playerId !== event.playerId),
+            {
+              playerId: event.playerId,
+              player: event.player,
+              stake: event.stake ?? 0,
+              boostFee: 0,
+              totalPaid: event.stake ?? 0,
+              boostTier: event.boostTier ?? 1,
+              boostMultiplier: 1,
+              boostApplied: false,
+              autoCashoutAt: null,
+              cashedOutAt: null,
+              winAmount: 0,
+              points: 0,
+            } satisfies BetView,
+          ]
+        : round.bets
+      set({ round: { ...round, betCount: event.betCount, totalStake: event.totalStake, bets } })
+      break
+    }
+
+    case 'tick':
+      set({
+        round: {
+          ...round,
+          serverMultiplier: event.multiplier,
+          serverMultiplierAt: performance.now(),
+          serverElapsedMs: event.elapsedMs,
+        },
+      })
+      break
+
+    case 'level':
+      set({ round: { ...round, levelsCrossed: event.levelIndex + 1 } })
+      if (round.myBet) sound.level(event.levelIndex)
+      break
+
+    case 'boost': {
+      const firedIds = new Set(event.fired.map((item) => item.playerId))
+      if (firedIds.size === 0) break
+      const mark = (bet: BetView) =>
+        firedIds.has(bet.playerId) ? { ...bet, boostApplied: true } : bet
+      set({
+        round: {
+          ...round,
+          bets: round.bets.map(mark),
+          myBet: round.myBet ? mark(round.myBet) : null,
+        },
+      })
+      if (myId && firedIds.has(myId)) sound.boost()
+      break
+    }
+
+    case 'cashout': {
+      const patch = (bet: BetView) =>
+        bet.playerId === event.playerId
+          ? {
+              ...bet,
+              cashedOutAt: event.multiplier,
+              winAmount: event.winAmount,
+              points: event.points,
+            }
+          : bet
+      const mine = round.myBet && round.myBet.playerId === event.playerId
+      // Автовывод сработал на сервере — баланс на клиенте о нём ещё не знает.
+      // Ручной вывод уже начислен ответом REST, второй раз добавлять нельзя.
+      const creditAuto = mine && event.auto && round.myBet?.cashedOutAt === null
+      set({
+        round: {
+          ...round,
+          bets: round.bets.map(patch),
+          myBet: round.myBet ? patch(round.myBet) : null,
+        },
+        ...(creditAuto ? { balance: get().balance + event.winAmount } : {}),
+      })
+      if (mine && event.auto) sound.cashout()
+      break
+    }
+
+    case 'round.finished': {
+      set({
+        round: {
+          ...round,
+          phase: 'RESULT',
+          crashAt: event.crashAt,
+          serverMultiplier: event.crashAt,
+          serverMultiplierAt: performance.now(),
+        },
+      })
+      if (round.myBet) {
+        sound.crash()
+        void finishRound(event.roundId, set, get)
+      }
+      void get().refreshHistory()
+      break
+    }
+  }
+}
+
+/** Перечитывает раунд темы с сервера — источник правды при любых сомнениях. */
+async function refreshRound(theme: Theme, set: Setter, get: () => GameStore) {
+  try {
+    const state = await api.state()
+    set({ balance: state.balance })
+    applyRoundView(state.rounds[theme], set, get)
+  } catch {
+    // Пропускаем: следующий тик или сторож повторят попытку.
+  }
+}
+
+function startWatchdog(theme: Theme, set: Setter, get: () => GameStore) {
   stopWatchdog()
   watchdog = window.setInterval(() => {
-    const flight = get().flight
-    if (!flight || flight.roundId !== roundId || flight.finished) {
+    const round = get().round
+    if (!round || round.theme !== theme) {
       stopWatchdog()
       return
     }
-    if (performance.now() - flight.serverMultiplierAt < SILENCE_BEFORE_RESYNC_MS) {
-      return
-    }
-    void resync(roundId, set, get)
+    // Молчание опасно только в полёте: там экран сам достраивает коэффициент
+    // и без свежих данных разгонит его в бесконечность.
+    if (round.phase !== 'FLYING') return
+    if (performance.now() - round.serverMultiplierAt < SILENCE_BEFORE_RESYNC_MS) return
+    void resync(theme, set, get)
   }, WATCHDOG_INTERVAL_MS)
 }
 
 /**
- * Сервер молчит дольше, чем должен. Спрашиваем у него состояние напрямую:
- * либо раунд ещё летит и мы подтягиваем настоящий коэффициент вместо
- * самодельного, либо он давно завершён — и тогда показываем результат.
+ * Сервер молчит дольше, чем должен. Спрашиваем состояние напрямую: либо раунд
+ * ещё летит и мы подтягиваем настоящий коэффициент вместо самодельного, либо
+ * он давно завершился — и тогда показываем результат.
  */
-async function resync(
-  roundId: string,
-  set: (partial: Partial<GameStore>) => void,
-  get: () => GameStore,
-) {
+async function resync(theme: Theme, set: Setter, get: () => GameStore) {
   if (resyncing) return
   resyncing = true
   try {
-    const state = await api.state()
-    const flight = get().flight
-    if (!flight || flight.roundId !== roundId || flight.finished) return
-
-    const active = state.activeRound
-    if (active && active.roundId === roundId) {
-      set({
-        balance: state.balance,
-        flight: {
-          ...flight,
-          serverMultiplier: active.multiplier,
-          serverMultiplierAt: performance.now(),
-          serverElapsedMs: active.elapsedMs,
-          levelsCrossed: active.levelsCrossed,
-          points: active.points,
-          boostApplied: active.boostApplied,
-          cashedOutAt: active.cashedOutAt,
-          winAmount: active.winAmount,
-        },
-      })
-      return
+    const before = get().round
+    await refreshRound(theme, set, get)
+    const after = get().round
+    if (before?.myBet && after && after.roundId !== before.roundId) {
+      // Раунд успел смениться, а события до нас не дошли — добираем свой итог.
+      await finishRound(before.roundId, set, get)
     }
-
-    // Среди активных раунда нет — он завершился, а событие до нас не дошло.
-    stopWatchdog()
-    set({ flight: { ...flight, finished: true } })
-    await finishRound(roundId, set, get)
-  } catch {
-    // Сеть недоступна — сторож попробует ещё раз на следующем интервале.
   } finally {
     resyncing = false
   }
 }
 
 /**
- * После краха берём итог отдельным запросом, а не из WS-события:
- * в нём нет награды и данных для проверки честности, а при обрыве
- * соединения событие можно вообще не получить.
+ * После краха берём личный итог отдельным запросом, а не из WS-события:
+ * в нём нет награды и данных для проверки честности, а при обрыве соединения
+ * событие можно вообще не получить.
  */
-async function finishRound(
-  roundId: string,
-  set: (partial: Partial<GameStore>) => void,
-  get: () => GameStore,
-) {
-  unsubscribe?.()
-  unsubscribe = null
-  stopWatchdog()
+async function finishRound(roundId: string, set: Setter, get: () => GameStore) {
   try {
     const result = await api.roundResult(roundId)
     set({
@@ -574,7 +686,7 @@ async function finishRound(
       rewards: [...get().rewards, result.reward.id].slice(-6),
     })
     await get().refreshHistory()
-  } catch (e) {
-    set({ error: (e as Error).message, phase: 'bet' })
+  } catch {
+    // Ставки в этом раунде не было — показывать нечего, остаёмся в лобби.
   }
 }

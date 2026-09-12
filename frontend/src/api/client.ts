@@ -6,8 +6,10 @@ import {
   type GameState,
   type HistoryItem,
   type LeaderRow,
+  type PlacedBet,
+  type RecentRound,
   type RoundResult,
-  type StartedRound,
+  type RoundView,
   type Theme,
   type User,
 } from './types'
@@ -73,16 +75,32 @@ export const api = {
 
   me: () => request<User>('/api/auth/me'),
 
-  startRound: (
+  /**
+   * Ставка в текущий раунд темы. Если приём уже закрыт, сервер ставит её в
+   * очередь на следующий раунд и возвращает queued: true.
+   */
+  placeBet: (
     theme: Theme,
     stake: number,
     boostOptionId: string,
-    options?: { autoCashoutAt?: number | null; seed?: number; speedFactor?: number },
+    autoCashoutAt: number | null,
   ) =>
-    request<StartedRound>('/api/round/start', {
-      method: 'POST',
-      body: JSON.stringify({ theme, stake, boostOptionId, ...options }),
+    request<PlacedBet>("/api/round/bet", {
+      method: "POST",
+      body: JSON.stringify({ theme, stake, boostOptionId, autoCashoutAt }),
     }),
+
+  /** Отмена ставки до взлёта — с возвратом всей списанной суммы. */
+  cancelBet: (theme: Theme) =>
+    request<{ balanceAfter: number; round: RoundView }>(`/api/round/${theme}/cancel`, {
+      method: "POST",
+    }),
+
+  /** Недавние раунды со списком участников. */
+  recentRounds: (limit = 20, theme?: Theme) =>
+    request<{ items: RecentRound[] }>(
+      `/api/rounds/recent?limit=${limit}${theme ? `&theme=${theme}` : ""}`,
+    ),
 
   cashout: (roundId: string) =>
     request<CashoutResult>(`/api/round/${roundId}/cashout`, { method: 'POST' }),

@@ -16,6 +16,7 @@ public record GameConfig(
         String gameType,
         boolean isActive,
         DemoUser demoUser,
+        RoundCycle roundCycle,
         Stake stake,
         List<BoostOption> boostOptions,
         Map<String, Theme> themes,
@@ -34,6 +35,13 @@ public record GameConfig(
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record DemoUser(int startingBalance) {}
+
+    /**
+     * Непрерывный цикл раундов. Раунды идут сами по себе, даже когда в игре
+     * никого нет: приём ставок -> полёт -> показ итога -> снова приём ставок.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record RoundCycle(int bettingSeconds, int resultSeconds, double speedFactor) {}
 
     /** Границы свободной ставки: игрок сам выбирает сумму внутри них. */
     @JsonIgnoreProperties(ignoreUnknown = true)
