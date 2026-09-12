@@ -104,7 +104,11 @@ function Loading() {
 }
 
 /**
- * Постоянный угол управления: аккаунт, настройки игры и звук.
+ * Постоянный угол управления: настройки игры и звук.
+ *
+ * Аккаунт отсюда уехал в шапку экрана (AccountChip) — под кем зашли, видно
+ * первым делом, слева сверху. Здесь остаётся то, что нужно редко и не должно
+ * тянуть на себя внимание.
  *
  * Звук вынесен сюда не только для удобства: на защите проектор обычно уже со
  * звуком, и возможность быстро приглушить игру важнее, чем кажется. Состояние
@@ -113,7 +117,6 @@ function Loading() {
 function CornerControls({ onOpenAdmin }: { onOpenAdmin: () => void }) {
   const [muted, setMuted] = useState(sound.muted)
   const user = useGame((s) => s.user)
-  const logout = useGame((s) => s.logout)
   const openReport = useGame((s) => s.openReport)
 
   const buttonStyle: React.CSSProperties = {
@@ -137,26 +140,6 @@ function CornerControls({ onOpenAdmin }: { onOpenAdmin: () => void }) {
         gap: 8,
       }}
     >
-      {user && (
-        <span className="chip chip-sm" title={`Вы вошли как ${user.username}`}>
-          <span style={{ color: 'var(--amber)' }}>{user.displayName}</span>
-          {user.role === 'ADMIN' && <span style={{ opacity: 0.5 }}>админ</span>}
-        </span>
-      )}
-
-      <button
-        className="chip"
-        onClick={() => void logout()}
-        title="Выйти из аккаунта"
-        aria-label="Выйти из аккаунта"
-        style={buttonStyle}
-      >
-        <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
-          <path d="M12.5 6.5V4.2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v11.6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V13.5" strokeLinecap="round" />
-          <path d="M8.5 10h8m0 0-2.4-2.4M16.5 10l-2.4 2.4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
-
       {/* Отчётность и экономика игры — только администратору; сервер всё равно откажет остальным. */}
       {user?.role === 'ADMIN' && (
         <button

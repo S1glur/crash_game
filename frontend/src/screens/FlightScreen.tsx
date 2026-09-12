@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { AccountChip } from '../components/AccountChip'
 import { Altimeter } from '../components/Altimeter'
 import { Balloon } from '../components/Balloon'
 import { LeaderStrip } from '../components/LeaderStrip'
@@ -146,6 +147,8 @@ export function FlightScreen() {
 
       <div className="screen-inner">
         <div className="topbar">
+          <AccountChip />
+
           <span className="chip">
             <span
               style={{

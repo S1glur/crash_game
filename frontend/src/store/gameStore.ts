@@ -692,10 +692,24 @@ function handleRoundEvent(
     }
 
     case 'round.finished': {
+      /*
+        Конец фазы итога приходится считать самим. Сервер о переходе в RESULT
+        отдельным событием не сообщает: ближайшее событие фазы уедет только
+        при открытии следующего раунда. А phaseEndsAt сейчас достался от
+        полёта, где он равен моменту в прошлом (в FLYING сервер шлёт
+        phaseRemainingMs = 0, там ждут не таймера, а краха), — и отсчёт на
+        экране результата показывал бы ноль всю фазу.
+
+        Отмеряем от момента краха, а не от появления экрана: экран держится
+        ещё BURST_HOLD_MS, пока доигрывает разрыв шара, и отсчёт от него врал
+        бы на эту секунду в большую сторону.
+      */
+      const resultMs = (get().config?.round_cycle?.result_seconds ?? 6) * 1000
       putRound(
         {
           ...round,
           phase: 'RESULT',
+          phaseEndsAt: Date.now() + resultMs,
           crashAt: event.crashAt,
           serverMultiplier: event.crashAt,
           serverMultiplierAt: performance.now(),

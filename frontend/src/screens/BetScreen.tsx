@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { BetView, StakeLimits } from '../api/types'
+import { AccountChip } from '../components/AccountChip'
 import { RecentRoundsModal } from '../components/RecentRoundsModal'
 import type { RoundState } from '../store/gameStore'
 import { Balloon } from '../components/Balloon'
@@ -49,7 +50,14 @@ export function BetScreen({
   const selected = boostOptions.find((option) => option.id === selectedBoostId) ?? null
   const boostFee = selected ? Math.ceil(stake * selected.priceFactor) : 0
   const totalCost = stake + boostFee
-  const myBet = round?.myBet ?? null
+  /*
+    В фазе итога round — это раунд, который уже отыгран, и myBet в нём
+    относится к прошлому. Текущей ставкой его считать нельзя: экран предлагал
+    бы отменить сыгравшую ставку и не давал поставить заново ровно те секунды,
+    когда игрок этого и хочет. Ставка в очереди на следующий раунд — другое
+    дело, она настоящая и отменяется.
+  */
+  const myBet = round && round.phase !== 'RESULT' ? round.myBet : null
   const queuedBet = round?.queuedBet ?? null
   const betting = round?.phase === 'BETTING'
   /*
@@ -106,6 +114,7 @@ export function BetScreen({
         */}
         <div className="topbar topbar-3">
           <div className="topbar-side">
+            <AccountChip />
             <button className="chip" onClick={goToTheme} style={{ letterSpacing: '.1em' }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 18l-6-6 6-6" />

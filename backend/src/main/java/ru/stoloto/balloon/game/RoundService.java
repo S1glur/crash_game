@@ -157,7 +157,18 @@ public class RoundService {
         }
 
         SharedRound round = round(theme);
-        if (round.bet(player.getId()) != null || pending(theme).containsKey(player.getId())) {
+        if (pending(theme).containsKey(player.getId())) {
+            throw new ApiException("BET_ALREADY_PLACED", "Ставка на следующий раунд уже сделана");
+        }
+        /*
+          Ставка в текущем раунде — дубль только пока идёт приём. В полёте и в
+          показе итога round(theme) это раунд, который игрок уже отыграл: его
+          ставка там ничего не говорит о следующем. Сравнивая с ней, мы
+          запирали участника раунда ровно на то время, когда он и хочет
+          поставить снова, — а очередь на следующий раунд сделана как раз
+          для этого случая.
+        */
+        if (round.phase() == RoundPhase.BETTING && round.bet(player.getId()) != null) {
             throw new ApiException("BET_ALREADY_PLACED", "Ставка на этот раунд уже сделана");
         }
 

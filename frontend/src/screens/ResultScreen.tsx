@@ -14,6 +14,8 @@ export function ResultScreen() {
   const balance = useGame((s) => s.balance)
   const stake = useGame((s) => s.stake)
   const boostOptions = useGame((s) => s.boostOptions)
+  const selectedBoostId = useGame((s) => s.selectedBoostId)
+  const totalCost = useGame((s) => s.totalCost)
   const upsellShown = useGame((s) => s.upsellShown)
   const markUpsellShown = useGame((s) => s.markUpsellShown)
   const betWithBoost = useGame((s) => s.betWithBoost)
@@ -28,6 +30,22 @@ export function ResultScreen() {
   */
   const countdown = useCountdown(round?.phaseEndsAt ?? Date.now())
   const [upsellOpen, setUpsellOpen] = useState(false)
+
+  /*
+    Повтор ставки: сначала уходим с экрана результата, потом ставим.
+    placeBet сбрасывает result, а этот экран без результата рисует пустоту —
+    поэтому фазу нужно переключить до отправки, а не после ответа сервера.
+
+    Сумма берётся текущая, а не из прошлого раунда: ставку и бустер игрок мог
+    поменять в апсейле, и кнопка обещала бы не ту цену, что спишется.
+  */
+  const repeatCost = totalCost(selectedBoostId)
+  const betting = round?.phase === 'BETTING'
+
+  const repeatBet = () => {
+    dismissResult()
+    void placeBet()
+  }
 
   /**
    * Что предложить в апсейле: самый сильный бустер, который игрок может
@@ -327,9 +345,17 @@ export function ResultScreen() {
             <button
               className="btn btn-ghost"
               style={{ height: 60, padding: '0 30px' }}
-              onClick={() => void placeBet()}
+              disabled={repeatCost > balance}
+              title={
+                repeatCost > balance
+                  ? 'Не хватает бонусов на повтор'
+                  : betting
+                    ? 'Поставить в раунд, который принимает ставки'
+                    : 'Приём закрыт — ставка встанет в очередь на следующий раунд'
+              }
+              onClick={repeatBet}
             >
-              Повторить · {fmtInt(result.totalPaid)}
+              {betting ? 'Повторить' : 'Повторить в следующем'} · {fmtInt(repeatCost)}
             </button>
             <div className="grow" />
             <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.5 }}>
