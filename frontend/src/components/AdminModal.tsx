@@ -205,13 +205,30 @@ export function AdminModal({ onClose }: { onClose: () => void }) {
           />
         </Section>
 
-        <Section title="Прочее">
+        <Section title="Длительность фаз">
+          {/*
+            Здесь раньше стояла ручка «автопереход с экрана результата». Она
+            правила ui.result_screen_auto_advance_sec — параметр, который не
+            читает ни экран, ни сервер: показ итога заканчивается вместе с
+            фазой раунда. Крутить её можно было сколько угодно без эффекта.
+          */}
           <Field
-            label="Автопереход с экрана результата, сек"
-            value={draft.ui.result_screen_auto_advance_sec}
+            label="Приём ставок, сек"
+            hint="Сколько времени есть, чтобы присоединиться к раунду"
+            value={draft.round_cycle?.betting_seconds ?? 0}
             step={1}
-            onChange={(v) => patch((n) => (n.ui.result_screen_auto_advance_sec = v))}
+            onChange={(v) => patch((n) => (n.round_cycle.betting_seconds = v))}
           />
+          <Field
+            label="Показ итога, сек"
+            hint="Секунду из них съедает разрыв шара — столько таблица результата и висит"
+            value={draft.round_cycle?.result_seconds ?? 0}
+            step={1}
+            onChange={(v) => patch((n) => (n.round_cycle.result_seconds = v))}
+          />
+        </Section>
+
+        <Section title="Прочее">
           <Field
             label="Стартовый баланс демо-игрока"
             hint="Применится при следующем создании игрока (после перезапуска сервера)"

@@ -12,6 +12,16 @@ import { ThemeScreen } from './screens/ThemeScreen'
 import { useGame } from './store/gameStore'
 import { sound } from './utils/sound'
 
+/**
+ * Сколько живёт уведомление, прежде чем уйти само.
+ *
+ * Раньше сообщение об ошибке висело до нажатия «Ок» и перекрывало нижнюю
+ * часть экрана, пока игрок про него не вспомнит. Семь секунд — столько,
+ * чтобы успеть дочитать длинную фразу вроде «ставка возможна от 100 до 400
+ * баллов», и не дольше.
+ */
+const NOTICE_LIFETIME_MS = 7000
+
 export default function App() {
   const phase = useGame((s) => s.phase)
   const error = useGame((s) => s.error)
@@ -26,6 +36,14 @@ export default function App() {
   useEffect(() => {
     void init()
   }, [init])
+
+  // Уведомление уходит само. Кнопка «Ок» остаётся: закрыть раньше срока
+  // иногда нужно, а ждать семь секунд ради этого — нет.
+  useEffect(() => {
+    if (!error) return
+    const timer = setTimeout(dismissError, NOTICE_LIFETIME_MS)
+    return () => clearTimeout(timer)
+  }, [error, dismissError])
 
   // Ветер и редкие птицы фоном на всё время игры (§1.1 ТЗ). Держим на уровне
   // приложения, иначе атмосфера обрывалась бы на каждом переходе между экранами.

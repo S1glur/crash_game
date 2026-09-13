@@ -70,29 +70,18 @@ export function BetScreen({
   const thresholds = config?.themes?.[theme]?.level_thresholds ?? []
 
   /*
-    Коэффициент, на котором в этом раунде ждёт бустер. Сервер разыгрывает его
-    при создании раунда и отдаёт ещё до взлёта, поэтому обещание «с бустером
-    будет столько-то» можно сверить с реальностью, а не выдавать желаемое.
+    Уровень, на котором ждёт бустер, экран ставок не называет — хотя сервер
+    его знает ещё до взлёта. Знающий игрок иначе просто караулит раунды, где
+    бустер выпал низко, и покупает только их: выбор перестаёт быть выбором.
+    Маркер бустера появляется уже в полёте, на шкале уровней, как требует
+    сценарий 4 ТЗ.
 
-    null — когда ставка уедет в следующий раунд: там уровень разыграется
-    заново, и называть его заранее нельзя.
+    Из-за этого выплата считается в двух видах: без бустера — то, что игрок
+    получит наверняка, и с бустером — если шар дойдёт до его уровня.
   */
-  const boostThreshold =
-    betting && round && round.boostLevelIndex !== null
-      ? (round.thresholds[round.boostLevelIndex] ?? null)
-      : null
-
-  /*
-    Успеет ли бустер сработать к опорному коэффициенту. Бустер умножает
-    выплату только после того, как шар прошёл его уровень, поэтому обещать
-    удвоение при выходе на ×2,00, когда бустер ждёт на 4,50×, значит обещать
-    вдвое больше, чем сервер заплатит.
-  */
-  const boostFiresByReference = boostThreshold !== null && boostThreshold <= REFERENCE_MULTIPLIER
-
-  /** Выплата при выходе на опорном коэффициенте — по той же формуле, что на сервере. */
-  const payoutAtReference = (option: BoostOption) =>
-    Math.floor(stake * REFERENCE_MULTIPLIER * (boostFiresByReference ? option.boostMultiplier : 1))
+  const payoutAtReference = Math.floor(stake * REFERENCE_MULTIPLIER)
+  const payoutWithBoost = (option: BoostOption) =>
+    Math.floor(stake * REFERENCE_MULTIPLIER * option.boostMultiplier)
 
   /*
     Потолок ставки зависит от выбранного бустера: за ×4 доплата полторы ставки,
@@ -136,7 +125,7 @@ export function BetScreen({
 
   const showToast = (message: string) => {
     setToast(message)
-    setTimeout(() => setToast(null), 2600)
+    setTimeout(() => setToast(null), 7000)
   }
 
   return (
@@ -328,9 +317,7 @@ export function BetScreen({
                           ? `не хватает ${fmtInt(stake + fee - balance)} бонусов`
                           : option.boostMultiplier === 1
                             ? 'только рост коэффициента'
-                            : boostThreshold !== null
-                              ? `сработает на ${fmtMult(boostThreshold)}×`
-                              : 'уровень разыграется в новом раунде'}
+                            : 'умножит выигрыш, если шар дойдёт до бустера'}
                       </span>
                     </div>
                     <div className="grow" />
@@ -362,8 +349,10 @@ export function BetScreen({
                         }}
                       >
                         при ×{fmtMult(REFERENCE_MULTIPLIER)} →{' '}
-                        {fmtInt(payoutAtReference(option))} · чистыми{' '}
-                        {fmtSigned(payoutAtReference(option) - stake - fee)}
+                        {fmtInt(payoutAtReference)}
+                        {option.boostMultiplier > 1
+                          ? `, с бустером ${fmtInt(payoutWithBoost(option))}`
+                          : ` · чистыми ${fmtSigned(payoutAtReference - stake - fee)}`}
                       </span>
                     </div>
                   </button>

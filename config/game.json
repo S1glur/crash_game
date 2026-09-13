@@ -10,7 +10,7 @@
 
   "round_cycle": {
     "betting_seconds": 15,
-    "result_seconds": 6,
+    "result_seconds": 11,
     "speed_factor": 1.0
   },
 

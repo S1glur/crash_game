@@ -75,7 +75,7 @@ const STEPS: Step[] = [
         <rect x="12" y="78" width="296" height="26" rx="3" fill={ACCENT} opacity="0.9" />
         <rect x="12" y="110" width="296" height="26" rx="3" fill={DIM} />
         <text x="24" y="63" fontSize="11" fontWeight="700" fill="rgba(242,234,219,.75)">без бустера</text>
-        <text x="24" y="95" fontSize="11" fontWeight="700" fill="#241e36">бустер ×2 · сработает на 1,70×</text>
+        <text x="24" y="95" fontSize="11" fontWeight="700" fill="#241e36">бустер ×2 · +100 к ставке</text>
         <text x="24" y="127" fontSize="11" fontWeight="700" fill="rgba(242,234,219,.75)">бустер ×3</text>
       </Frame>
     ),

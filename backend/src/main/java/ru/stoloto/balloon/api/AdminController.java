@@ -50,8 +50,17 @@ public class AdminController {
     /** Сколько последних полётов показывать на экране. Весь журнал — в выгрузке. */
     private static final int RECENT_LIMIT = 12;
 
+    /**
+     * Время в выгрузке — московское, а не то, в котором живёт сервер.
+     *
+     * Часовой пояс машины брать нельзя: контейнер на хостинге работает в UTC,
+     * и журнал приезжал бы к администратору со временем на три часа назад.
+     * Отчёт читают люди в Москве, поэтому зона зафиксирована.
+     */
+    private static final ZoneId REPORT_ZONE = ZoneId.of("Europe/Moscow");
+
     private static final DateTimeFormatter STAMP =
-            DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss").withZone(ZoneId.systemDefault());
+            DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss").withZone(REPORT_ZONE);
 
     private final GameRoundRepository flights;
     private final RoundRepository bets;

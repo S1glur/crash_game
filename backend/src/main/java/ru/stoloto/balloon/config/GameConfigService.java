@@ -158,6 +158,19 @@ public class GameConfigService {
         range("growth_acceleration_base", model.growthAccelerationBase(), 1.0, 1.5);
         range("delta", model.delta(), 0.02, 1.0);
 
+        /*
+          Длительности фаз. Нулевой приём ставок не даёт присоединиться к
+          раунду вообще, а нулевой показ итога закрывает таблицу результата
+          раньше, чем игрок успевает её увидеть.
+        */
+        GameConfig.RoundCycle cycle = config.roundCycle();
+        if (cycle == null) {
+            throw new ConfigValidationException("Отсутствует блок round_cycle");
+        }
+        range("round_cycle.betting_seconds", cycle.bettingSeconds(), 5, 180);
+        range("round_cycle.result_seconds", cycle.resultSeconds(), 3, 60);
+        range("round_cycle.speed_factor", cycle.speedFactor(), 0.1, 10.0);
+
         if (config.points() == null) {
             throw new ConfigValidationException("Отсутствует блок points");
         }
