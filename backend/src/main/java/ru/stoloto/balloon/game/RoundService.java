@@ -86,6 +86,21 @@ public class RoundService {
     @PostConstruct
     void startLoop() {
         GameConfig config = configService.get();
+
+        /*
+          Продолжаем нумерацию с того места, где её оставил прошлый запуск.
+          Идентификатор раунда — первичный ключ таблицы полётов, и счётчик,
+          начинающийся с нуля, затирал прежние раунды один за другим: полёт
+          терял участников и выплаты, а ставки оставались в своей таблице.
+          Отчётность после каждого перезапуска показывала приход без выплат,
+          то есть растущую из ниоткуда прибыль.
+        */
+        long continueFrom = persistence.maxRoundNumber();
+        roundCounter.set(continueFrom);
+        if (continueFrom > 0) {
+            log.info("Round numbering continues from r-{}", continueFrom);
+        }
+
         for (String theme : config.themes().keySet()) {
             pending.put(theme, new ConcurrentHashMap<>());
             rounds.put(theme, newRound(theme, config));

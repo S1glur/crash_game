@@ -39,6 +39,33 @@ public class RoundPersistence {
         this.configService = configService;
     }
 
+    /**
+     * Наибольший номер раунда в истории.
+     *
+     * Идентификатор раунда — первичный ключ таблицы полётов, а нумерация
+     * живёт в памяти процесса. После перезапуска она начиналась с нуля, и
+     * новый «r-1» молча затирал прошлый «r-1» вместе с его участниками и
+     * выплатами. Ставки при этом оставались: у них собственный ключ. Отчёт
+     * после каждого перезапуска показывал приход без ушедших с ним выплат —
+     * то есть прибыль, взявшуюся из воздуха.
+     */
+    @Transactional(readOnly = true)
+    public long maxRoundNumber() {
+        long max = 0;
+        for (String id : gameRoundRepository.findAllRoundIds()) {
+            int dash = id.indexOf('-');
+            if (dash < 0) {
+                continue;
+            }
+            try {
+                max = Math.max(max, Long.parseLong(id.substring(dash + 1)));
+            } catch (NumberFormatException e) {
+                // Идентификатор не нашей формы — в нумерации не участвует.
+            }
+        }
+        return max;
+    }
+
     @Transactional(readOnly = true)
     public PlayerEntity player(String playerId) {
         return playerRepository.findById(playerId)
