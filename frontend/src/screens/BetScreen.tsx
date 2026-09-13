@@ -1,10 +1,9 @@
 import { useMemo, useState } from 'react'
-import type { BetView, BoostOption, StakeLimits } from '../api/types'
+import type { BetView, BoostOption, RecentRound, StakeLimits, Theme } from '../api/types'
 import { AccountChip } from '../components/AccountChip'
 import { RecentRoundsModal } from '../components/RecentRoundsModal'
 import type { RoundState } from '../store/gameStore'
 import { Balloon } from '../components/Balloon'
-import { HistoryChart } from '../components/HistoryChart'
 import { LootChart } from '../components/LootChart'
 import { PuzzleIcon } from '../components/PuzzleIcon'
 import { Scene } from '../components/Scene'
@@ -14,6 +13,9 @@ import { fmtInt, fmtMult, fmtSigned } from '../utils/format'
 
 /** Коэффициент, по которому показываем «сколько получится» — медиана истории. */
 const REFERENCE_MULTIPLIER = 2
+
+/** Сколько прошлых полётов помещается в нижнюю полосу, не мельча цифры. */
+const STRIP_FLIGHTS = 12
 
 export function BetScreen({
   onOpenRules,
@@ -116,7 +118,7 @@ export function BetScreen({
   /*
     Полёты своей темы. Список приходит по всем темам сразу, а у зелёной и
     красной разное число уровней и разные пороги — смешивать их в одной
-    гистограмме значит сравнивать несравнимое.
+    полосе значит сравнивать несравнимое.
   */
   const themeFlights = useMemo(
     () => recentRounds.filter((flight) => flight.theme === theme),
@@ -128,9 +130,14 @@ export function BetScreen({
     setTimeout(() => setToast(null), 7000)
   }
 
+  const themeColor = theme === 'green' ? 'var(--emerald-lt)' : 'var(--bordeaux-lt)'
+
   return (
     <div className="screen">
-      <Scene theme={theme} />
+      {/* Сцена размыта: поверх неё лежит карточка с цифрами, и резкий фон спорил с ней. */}
+      <div className="bet-scene">
+        <Scene theme={theme} />
+      </div>
 
       <div className="screen-inner">
         {/*
@@ -149,7 +156,7 @@ export function BetScreen({
             </button>
           </div>
 
-          <span className="num topbar-title" style={{ fontSize: 24 }}>
+          <span className="head topbar-title" style={{ fontSize: 30 }}>
             Воздушный шар
           </span>
 
@@ -193,67 +200,40 @@ export function BetScreen({
         </div>
 
         <div className="bet-body scroll-y">
-          {/* левая колонка */}
-          <div className="bet-col">
-            <div
-              style={{
-                position: 'relative',
-                flexGrow: 1,
-                minHeight: 240,
-                overflow: 'hidden',
-                border: '1px solid var(--line)',
-                borderRadius: 4,
-                background:
-                  theme === 'green'
-                    ? 'linear-gradient(180deg, #1c2240 0%, #35566b 44%, #97a878 82%, #d8b070 100%)'
-                    : 'linear-gradient(180deg, #1c2240 0%, #3a335c 38%, #7a4f66 66%, #e8a468 100%)',
-              }}
-            >
-              {/*
-                Шар поднят над плашками выбора темы: те прижаты к низу
-                (bottom: 14) и при bottom: 18 корзина шара их перекрывала.
-                Запас взят с учётом того, что шар ещё и покачивается на 15px.
-              */}
-              <div
-                style={{
-                  position: 'absolute',
-                  left: '50%',
-                  bottom: 104,
-                  transform: 'translateX(-50%)',
-                }}
-              >
-                <Balloon theme={theme} width={128} />
-              </div>
-              <div style={{ position: 'absolute', left: 18, top: 16, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {/* слева — сцена: шар, под ним выбор темы и справочные панели */}
+          <div className="bet-stage">
+            <div className="bet-balloon">
+              <div style={{ position: 'absolute', left: 0, top: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <span className="label">Тема полёта</span>
-                <span className="num" style={{ fontSize: 30, color: theme === 'green' ? 'var(--emerald-lt)' : 'var(--bordeaux-lt)' }}>
+                <span className="head" style={{ fontSize: 34, color: themeColor }}>
                   {theme === 'green' ? 'Изумруд' : 'Бордо'}
                 </span>
-                <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.7 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.65 }}>
                   {levelsCount[theme]} уровней
                 </span>
               </div>
 
-              <div style={{ position: 'absolute', left: 14, right: 14, bottom: 14, display: 'flex', gap: 10 }}>
-                <ThemeToggle theme="green" active={theme === 'green'} levels={levelsCount.green} onSelect={setTheme} />
-                <ThemeToggle theme="red" active={theme === 'red'} levels={levelsCount.red} onSelect={setTheme} />
-              </div>
+              <Balloon theme={theme} width={168} />
+            </div>
+
+            <div className="theme-row">
+              <ThemePick theme="green" active={theme === 'green'} levels={levelsCount.green} onSelect={setTheme} />
+              <ThemePick theme="red" active={theme === 'red'} levels={levelsCount.red} onSelect={setTheme} />
             </div>
 
             {round && <Participants bets={round.bets} meId={user?.id} />}
 
-            <HistoryChart flights={themeFlights} />
+            {lootProbabilities.length > 0 && <LootChart probabilities={lootProbabilities} />}
           </div>
 
-          {/* правая колонка */}
-          <div className="bet-col">
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
-              <span className="num" style={{ fontSize: 28 }}>
-                Ставка и бустер
+          {/* справа — одна карточка: всё, что игрок делает, лежит в ней */}
+          <div className="bet-card">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+              <span className="head" style={{ fontSize: 30 }}>
+                Ставка
               </span>
-              <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.55 }}>
-                сумма любая, бустер докупается отдельно
-              </span>
+              <div className="grow" />
+              {round && <PhasePill round={round} />}
             </div>
 
             {stuck && (
@@ -263,26 +243,23 @@ export function BetScreen({
                   alignItems: 'center',
                   gap: 16,
                   padding: '16px 18px',
-                  background: 'rgba(140,47,58,.24)',
-                  border: '1px solid rgba(232,117,127,.5)',
-                  borderRadius: 3,
+                  background: '#3a2029',
+                  borderRadius: 'var(--r-md)',
                   flexWrap: 'wrap',
                 }}
               >
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 220px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 200px' }}>
                   <span style={{ fontSize: 14, fontWeight: 800 }}>Бонусы закончились</span>
-                  <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.7, lineHeight: 1.5 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.72, lineHeight: 1.5 }}>
                     На балансе {fmtInt(balance)}, самая дешёвая ставка — {fmtInt(cheapest)}.
                     Демо-счёт можно пополнить до {fmtInt(startingBalance)}.
                   </span>
                 </div>
-                <button className="btn btn-primary" style={{ height: 50, padding: '0 26px' }} onClick={() => void topUp()}>
+                <button className="btn btn-primary" style={{ height: 48, padding: '0 24px' }} onClick={() => void topUp()}>
                   Пополнить счёт
                 </button>
               </div>
             )}
-
-            {round && <RoundBar round={round} onOpenRecent={() => setRecentOpen(true)} />}
 
             <StakeInput
               value={stake}
@@ -291,76 +268,79 @@ export function BetScreen({
               maxAffordable={maxAffordable}
             />
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-              {boostOptions.map((option) => {
-                const fee = Math.ceil(stake * option.priceFactor)
-                const affordable = stake + fee <= balance
-                const isSelected = option.id === selectedBoostId
-                return (
-                  <button
-                    key={option.id}
-                    className="bet-row"
-                    data-selected={isSelected}
-                    onClick={() =>
-                      affordable ? selectBoost(option.id) : showToast('Не хватает бонусов')
-                    }
-                    aria-pressed={isSelected}
-                    style={{ opacity: affordable ? 1 : 0.45 }}
-                  >
-                    <PuzzleIcon filled={isSelected} size={28} />
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                      <span style={{ fontSize: 15, fontWeight: 800 }}>
-                        {option.boostMultiplier > 1 ? `Бустер ×${option.boostMultiplier}` : 'Без бустера'}
+            <div className="bet-sep" />
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+              <span className="label">Бустер · умножит выигрыш, если шар дойдёт до него</span>
+
+              <div className="boost-grid">
+                {boostOptions.map((option) => {
+                  const fee = Math.ceil(stake * option.priceFactor)
+                  const affordable = stake + fee <= balance
+                  const isSelected = option.id === selectedBoostId
+                  const payout = option.boostMultiplier > 1 ? payoutWithBoost(option) : payoutAtReference
+                  return (
+                    <button
+                      key={option.id}
+                      className="boost-tile"
+                      data-selected={isSelected}
+                      aria-pressed={isSelected}
+                      title={
+                        option.boostMultiplier > 1
+                          ? `Доплата ${fmtInt(fee)}. Если шар дойдёт до бустера, выигрыш умножится на ${option.boostMultiplier}`
+                          : 'Только рост коэффициента, без доплаты'
+                      }
+                      onClick={() =>
+                        affordable ? selectBoost(option.id) : showToast('Не хватает бонусов')
+                      }
+                      style={{ opacity: affordable ? 1 : 0.45 }}
+                    >
+                      <span style={{ fontSize: 12.5, fontWeight: 800 }}>
+                        {option.boostMultiplier > 1 ? `×${option.boostMultiplier}` : 'Без'}
                       </span>
-                      <span style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.55 }}>
-                        {!affordable
-                          ? `не хватает ${fmtInt(stake + fee - balance)} бонусов`
-                          : option.boostMultiplier === 1
-                            ? 'только рост коэффициента'
-                            : 'умножит выигрыш, если шар дойдёт до бустера'}
-                      </span>
-                    </div>
-                    <div className="grow" />
-                    {isSelected && (
-                      <span
-                        style={{
-                          padding: '5px 11px',
-                          background: 'var(--amber)',
-                          borderRadius: 2,
-                          fontSize: 10,
-                          fontWeight: 800,
-                          letterSpacing: '.16em',
-                          textTransform: 'uppercase',
-                          color: 'var(--ink-soft)',
-                        }}
-                      >
-                        Выбрано
-                      </span>
-                    )}
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
-                      <span className="num" style={{ fontSize: 24 }}>
+                      <span className="num" style={{ fontSize: 22, lineHeight: 1 }}>
                         {fee > 0 ? `+${fmtInt(fee)}` : '—'}
                       </span>
                       <span
                         style={{
                           fontSize: 10.5,
                           fontWeight: 600,
-                          color: isSelected ? 'var(--amber)' : 'rgba(242,234,219,.45)',
+                          color: !affordable
+                            ? 'var(--bordeaux-lt)'
+                            : isSelected
+                              ? 'var(--amber)'
+                              : 'rgba(242,234,219,.45)',
                         }}
                       >
-                        при ×{fmtMult(REFERENCE_MULTIPLIER)} →{' '}
-                        {fmtInt(payoutAtReference)}
-                        {option.boostMultiplier > 1
-                          ? `, с бустером ${fmtInt(payoutWithBoost(option))}`
-                          : ` · чистыми ${fmtSigned(payoutAtReference - stake - fee)}`}
+                        {affordable
+                          ? `→ ${fmtInt(payout)}`
+                          : `не хватает ${fmtInt(stake + fee - balance)}`}
                       </span>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
+                    </button>
+                  )
+                })}
+              </div>
 
-            {lootProbabilities.length > 0 && <LootChart probabilities={lootProbabilities} />}
+              {/* Из чего складывается списание и что вернётся — иначе доплата выглядит скрытой. */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11.5, fontWeight: 600, opacity: 0.62, flexWrap: 'wrap' }}>
+                <span>
+                  при ×{fmtMult(REFERENCE_MULTIPLIER)} вернётся {fmtInt(payoutAtReference)}
+                  {selected && selected.boostMultiplier > 1
+                    ? `, с бустером ${fmtInt(payoutWithBoost(selected))}`
+                    : ''}
+                  {' · чистыми '}
+                  {fmtSigned(payoutAtReference - totalCost)}
+                </span>
+                {boostFee > 0 && (
+                  <>
+                    <div className="grow hr" />
+                    <span>
+                      ставка {fmtInt(stake)} + бустер за {fmtInt(boostFee)}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
 
             <AutoCashout
               value={autoCashout}
@@ -375,7 +355,7 @@ export function BetScreen({
             {myBet || queuedBet ? (
               <button
                 className="btn btn-ghost"
-                style={{ height: 66 }}
+                style={{ height: 62, flexShrink: 0 }}
                 onClick={() => void cancelBet()}
               >
                 Отменить ставку · вернём {fmtInt((myBet ?? queuedBet)!.totalPaid)}
@@ -383,21 +363,13 @@ export function BetScreen({
             ) : (
               <button
                 className="btn btn-primary"
-                style={{ height: 66 }}
+                style={{ height: 62, flexShrink: 0 }}
                 disabled={!canStart}
                 onClick={() => void placeBet()}
               >
                 {betting ? 'Поставить' : 'В очередь на следующий раунд'}
                 {selected && (
-                  <span
-                    style={{
-                      padding: '5px 12px',
-                      background: 'rgba(36,30,54,.18)',
-                      borderRadius: 2,
-                      fontSize: 13,
-                      letterSpacing: 0,
-                    }}
-                  >
+                  <span className="num" style={{ fontSize: 20, letterSpacing: 0 }}>
                     −{fmtInt(totalCost)}
                   </span>
                 )}
@@ -410,30 +382,16 @@ export function BetScreen({
               </span>
             )}
 
-            {/* Из чего складывается списание — иначе доплата выглядит скрытой. */}
-            {selected && boostFee > 0 && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  fontSize: 11.5,
-                  fontWeight: 600,
-                  opacity: 0.6,
-                  flexWrap: 'wrap',
-                }}
-              >
-                <span>
-                  ставка {fmtInt(stake)} + бустер ×{selected.boostMultiplier} за {fmtInt(boostFee)}
-                </span>
-                <div className="grow hr" />
-                <span>выигрыш считается только со ставки</span>
-              </div>
-            )}
-
             <div
-              className="panel"
-              style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 18px', flexWrap: 'wrap' }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 14,
+                padding: '12px 16px',
+                background: 'var(--surface-2)',
+                borderRadius: 'var(--r-md)',
+                flexWrap: 'wrap',
+              }}
             >
               <span className="label">Коллекция</span>
               <div style={{ display: 'flex', gap: 7 }}>
@@ -445,6 +403,25 @@ export function BetScreen({
                 {rewards.length} из 6 — каждый раунд приносит фрагмент
               </span>
             </div>
+          </div>
+        </div>
+
+        <div className="bet-strip">
+          <div style={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 9 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <span className="label">Прошлые полёты · новые слева</span>
+              <div className="grow" />
+              {round && (
+                <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.5 }}>
+                  {round.roundId} · участников {round.betCount}
+                </span>
+              )}
+              <button className="chip chip-sm" onClick={() => setRecentOpen(true)}>
+                Недавние
+              </button>
+            </div>
+
+            <FlightStrip flights={themeFlights} />
           </div>
         </div>
       </div>
@@ -463,9 +440,8 @@ export function BetScreen({
             alignItems: 'center',
             gap: 10,
             padding: '14px 22px',
-            background: 'var(--ink)',
-            border: '1px solid var(--bordeaux-lt)',
-            borderRadius: 3,
+            background: 'var(--panel-strong)',
+            borderRadius: 999,
             animation: 'fadeIn .2s ease',
           }}
         >
@@ -480,60 +456,101 @@ export function BetScreen({
   )
 }
 
-function ThemeToggle({
+/**
+ * Цвет плашки по величине коэффициента.
+ *
+ * Цвет здесь не украшение: полоса читается боковым зрением, и по её тону
+ * видно, как шла игра последние минуты, ещё до того как прочитаны цифры.
+ * Ранний крах уходит в красное, долгий полёт — в янтарь.
+ */
+function tone(value: number): { bg: string; ink: string } {
+  if (value >= 3) return { bg: '#4a3a1c', ink: '#f7c473' }
+  if (value >= 2) return { bg: '#3d2c33', ink: '#f0a76b' }
+  if (value >= 1.3) return { bg: '#272045', ink: '#a79ce0' }
+  return { bg: '#3a2029', ink: '#f08e97' }
+}
+
+/**
+ * Прошлые полёты плашками: коэффициент раунда и цвет по его величине.
+ *
+ * Раньше здесь стояла гистограмма со средним, медианой и долей выше 2,00.
+ * Она отвечала на вопрос, которого игрок не задаёт: перед ставкой важно не
+ * распределение, а то, что происходило только что. Считается по РАУНДАМ, а не
+ * по ставкам — раунд с тремя участниками остаётся одной плашкой.
+ */
+function FlightStrip({ flights }: { flights: RecentRound[] }) {
+  const shown = flights.slice(0, STRIP_FLIGHTS)
+
+  if (shown.length === 0) {
+    return (
+      <span style={{ fontSize: 12.5, fontWeight: 600, opacity: 0.5 }}>
+        Ещё никто не летал — ваш раунд будет первым в истории.
+      </span>
+    )
+  }
+
+  return (
+    <div className="flight-chips">
+      {shown.map((flight) => {
+        const { bg, ink } = tone(flight.crashAt)
+        return (
+          <span
+            key={flight.roundId}
+            className="flight-chip num"
+            title={`${flight.roundId} · участников ${flight.betCount}`}
+            style={{ background: bg, color: ink }}
+          >
+            {fmtMult(flight.crashAt)}×
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
+ * Выбор темы прямо под шаром: плашка меняет то, что нарисовано выше.
+ *
+ * Полный экран выбора с описаниями никуда не делся — он открывается кнопкой
+ * «Тема» в шапке; здесь быстрый переключатель для тех, кто уже знает разницу.
+ */
+function ThemePick({
   theme,
   active,
   levels,
   onSelect,
 }: {
-  theme: 'green' | 'red'
+  theme: Theme
   active: boolean
   levels: number
-  onSelect: (theme: 'green' | 'red') => void
+  onSelect: (theme: Theme) => void
 }) {
   const color = theme === 'green' ? 'var(--emerald-lt)' : 'var(--bordeaux-lt)'
   return (
     <button
+      className="theme-pick"
+      data-active={active}
+      aria-pressed={active}
       onClick={() => onSelect(theme)}
-      style={{
-        flex: '1 1 0',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 11,
-        padding: '11px 15px',
-        background: active ? 'rgba(16,13,32,.82)' : 'rgba(16,13,32,.5)',
-        border: `1px solid ${active ? color : 'rgba(242,234,219,.2)'}`,
-        borderRadius: 3,
-        textAlign: 'center',
-      }}
+      style={{ borderColor: active ? color : undefined }}
     >
-      <span style={{ width: 9, height: 9, background: color, flexShrink: 0 }} />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'flex-start' }}>
-        <span style={{ fontSize: 13, fontWeight: active ? 800 : 700, opacity: active ? 1 : 0.75 }}>
+      <span style={{ width: 12, height: 12, borderRadius: 4, background: color, flexShrink: 0 }} />
+      <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span style={{ fontSize: 14, fontWeight: 800, opacity: active ? 1 : 0.72 }}>
           {theme === 'green' ? 'Изумруд' : 'Бордо'}
         </span>
-        <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.55 }}>{levels} уровней</span>
-      </div>
+        <span style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.55 }}>{levels} уровней</span>
+      </span>
     </button>
   )
 }
 
 /**
- * Автовывод: игрок заранее называет коэффициент, на котором сервер сам
- * зафиксирует выигрыш. Смысл не в удобстве, а в психологии crash-игр — решение,
- * принятое заранее и на холодную голову, спасает от «ещё чуть-чуть», из-за
- * которого ставка и сгорает.
- *
- * Порог хранится и проверяется на сервере: иначе он зависел бы от лагов вкладки
- * и не сработал бы на свёрнутой странице.
- */
-/**
- * Ввод суммы ставки: пресеты, ползунок и точное поле.
+ * Ввод суммы ставки: крупное число, ползунок и пресеты.
  *
  * Ползунок ограничен не только конфигом, но и балансом с учётом доплаты за
  * выбранный бустер — иначе игрок выставлял бы сумму, которую сервер всё равно
- * отклонит, и узнавал бы об этом только по ошибке после нажатия «Начать».
+ * отклонит, и узнавал бы об этом только по ошибке после нажатия «Поставить».
  */
 function StakeInput({
   value,
@@ -555,16 +572,16 @@ function StakeInput({
   }
 
   return (
-    <div className="panel" style={{ padding: '11px 14px', display: 'flex', flexDirection: 'column', gap: 9 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <span className="label">Сумма ставки</span>
         <div className="grow" />
-        <span style={{ fontSize: 10.5, fontWeight: 600, opacity: 0.5 }}>
+        <span style={{ fontSize: 10.5, fontWeight: 600, opacity: 0.45 }}>
           от {fmtInt(limits.min)} до {fmtInt(maxAffordable)}
         </span>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 11, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 20, flexWrap: 'wrap' }}>
         <input
           className="num"
           inputMode="numeric"
@@ -576,53 +593,67 @@ function StakeInput({
           }}
           aria-label="Сумма ставки в баллах"
           style={{
-            width: 104,
-            padding: '5px 10px',
-            background: 'rgba(16,13,32,.6)',
-            border: '1px solid rgba(242,166,73,.45)',
-            borderRadius: 3,
+            width: 150,
+            padding: '6px 12px',
+            background: 'var(--surface-2)',
+            border: 'none',
+            borderRadius: 'var(--r-sm)',
             color: 'var(--cream)',
-            fontSize: 22,
+            fontSize: 42,
             textAlign: 'center',
+            outline: 'none',
           }}
         />
-        <input
-          type="range"
-          min={limits.min}
-          max={maxAffordable}
-          step={limits.step}
-          value={Math.min(value, maxAffordable)}
-          onChange={(event) => onChange(Number(event.target.value))}
-          aria-label="Ползунок суммы ставки"
-          style={{ flex: '1 1 140px', accentColor: 'var(--amber)' }}
-        />
-      </div>
 
-      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-        {limits.presets
-          .filter((preset) => preset <= maxAffordable)
-          .map((preset) => (
-            <button
-              key={preset}
-              className="chip chip-sm"
-              onClick={() => onChange(preset)}
-              aria-pressed={value === preset}
-              style={{
-                borderColor: value === preset ? 'var(--amber)' : undefined,
-                color: value === preset ? 'var(--amber)' : undefined,
-              }}
-            >
-              {fmtInt(preset)}
+        <div style={{ flex: '1 1 220px', display: 'flex', flexDirection: 'column', gap: 12, paddingBottom: 4 }}>
+          <input
+            type="range"
+            min={limits.min}
+            max={maxAffordable}
+            step={limits.step}
+            value={Math.min(value, maxAffordable)}
+            onChange={(event) => onChange(Number(event.target.value))}
+            aria-label="Ползунок суммы ставки"
+            style={{ width: '100%', accentColor: 'var(--amber)' }}
+          />
+
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {limits.presets
+              .filter((preset) => preset <= maxAffordable)
+              .map((preset) => (
+                <button
+                  key={preset}
+                  className="chip chip-sm"
+                  onClick={() => onChange(preset)}
+                  aria-pressed={value === preset}
+                  style={
+                    value === preset
+                      ? { background: 'var(--amber)', color: 'var(--ink-soft)' }
+                      : undefined
+                  }
+                >
+                  {fmtInt(preset)}
+                </button>
+              ))}
+            <button className="chip chip-sm" onClick={() => onChange(maxAffordable)}>
+              Максимум
             </button>
-          ))}
-        <button className="chip chip-sm" onClick={() => onChange(maxAffordable)}>
-          Максимум
-        </button>
+          </div>
+        </div>
       </div>
     </div>
   )
 }
 
+/**
+ * Автовывод: игрок заранее называет коэффициент, на котором сервер сам
+ * зафиксирует выигрыш. Смысл не в удобстве, а в психологии crash-игр — решение,
+ * принятое заранее и на холодную голову, спасает от «ещё чуть-чуть», из-за
+ * которого ставка и сгорает.
+ *
+ * Порог хранится и проверяется на сервере: иначе он зависел бы от лагов вкладки
+ * и не сработал бы на свёрнутой странице.
+ */
 function AutoCashout({
   value,
   onChange,
@@ -637,24 +668,19 @@ function AutoCashout({
   boostMultiplier: number
 }) {
   const presets = [1.5, 2, 3, 5]
+  const pick = (active: boolean) =>
+    active ? { background: 'var(--amber)', color: 'var(--ink-soft)' } : undefined
 
   return (
-    /*
-      Заголовок и кнопки в одной строке, а не в двух: блок стоит прямо над
-      «Начать полёт», и каждая лишняя строка уводила кнопку под срез экрана.
-    */
-    <div className="panel" style={{ padding: '11px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span className="label">Автовывод</span>
 
         <button
           className="chip chip-sm"
           onClick={() => onChange(null)}
           aria-pressed={value === null}
-          style={{
-            borderColor: value === null ? 'var(--amber)' : undefined,
-            color: value === null ? 'var(--amber)' : undefined,
-          }}
+          style={pick(value === null)}
         >
           Выкл
         </button>
@@ -667,10 +693,7 @@ function AutoCashout({
               className="chip chip-sm"
               onClick={() => onChange(preset)}
               aria-pressed={value === preset}
-              style={{
-                borderColor: value === preset ? 'var(--amber)' : undefined,
-                color: value === preset ? 'var(--amber)' : undefined,
-              }}
+              style={pick(value === preset)}
             >
               ×{preset.toFixed(2).replace('.', ',')}
             </button>
@@ -688,25 +711,26 @@ function AutoCashout({
             onChange(e.target.value === '' || Number.isNaN(parsed) ? null : parsed)
           }}
           style={{
-            width: 66,
+            width: 72,
             font: 'inherit',
             fontWeight: 700,
             fontSize: 11,
-            padding: '4px 7px',
-            background: 'rgba(16,13,32,.6)',
+            padding: '6px 10px',
+            background: 'var(--surface-2)',
             color: 'var(--cream)',
-            border: '1px solid var(--line)',
-            borderRadius: 2,
+            border: 'none',
+            borderRadius: 999,
+            outline: 'none',
           }}
         />
       </div>
 
-      <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.6, lineHeight: 1.4 }}>
+      <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.55, lineHeight: 1.4 }}>
         {value === null
           ? 'Выключен — забирать вручную, пока шар не лопнул.'
           : bet > 0
             ? `На ×${value.toFixed(2).replace('.', ',')} получите ${fmtInt(Math.floor(bet * value))}` +
-              (boostMultiplier > 1 ? ` · с бустером порог возьмём раньше` : '')
+              (boostMultiplier > 1 ? ' · с бустером порог возьмём раньше' : '')
             : `Минимум — ×${minimum.toFixed(2).replace('.', ',')} (первый уровень).`}
       </span>
     </div>
@@ -714,57 +738,48 @@ function AutoCashout({
 }
 
 /**
- * Шапка лобби: в каком состоянии общий раунд и сколько до его смены.
+ * Состояние общего раунда в шапке карточки: сколько секунд до взлёта.
  *
  * Цикл идёт непрерывно и без игроков, поэтому обратный отсчёт — главный
- * элемент экрана: по нему видно, успеваешь ли ты в этот раунд.
+ * ориентир экрана: по нему видно, успеваешь ли ты в этот раунд.
  */
-function RoundBar({ round, onOpenRecent }: { round: RoundState; onOpenRecent: () => void }) {
+function PhasePill({ round }: { round: RoundState }) {
   const left = useCountdown(round.phaseEndsAt)
   const betting = round.phase === 'BETTING'
 
   return (
-    <div
-      className="panel"
+    <span
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 14,
-        padding: '12px 16px',
-        borderColor: betting ? 'rgba(242,166,73,.44)' : 'var(--line)',
-        flexWrap: 'wrap',
+        gap: 10,
+        padding: '8px 16px',
+        background: 'var(--surface-2)',
+        borderRadius: 999,
       }}
     >
-      <span className="label" style={{ color: betting ? 'var(--amber)' : undefined }}>
-        {betting ? 'Приём ставок' : round.phase === 'FLYING' ? 'Шар в воздухе' : 'Раунд завершён'}
-      </span>
-
       {betting ? (
         <>
-          <span className="num" style={{ fontSize: 28, lineHeight: 1, color: 'var(--amber)' }}>
+          <span className="num" style={{ fontSize: 20, color: 'var(--amber)' }}>
             {left}
           </span>
-          <span style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.55 }}>
+          <span style={{ fontSize: 11.5, fontWeight: 700, opacity: 0.8 }}>
             {/* На нуле приём уже закрыт, а событие о взлёте ещё в пути — */}
             {/* «0 сек до взлёта» в этот момент читается как зависший экран. */}
             {left > 0 ? 'сек до взлёта' : 'взлетаем'}
           </span>
         </>
       ) : (
-        <span className="num" style={{ fontSize: 22, lineHeight: 1 }}>
-          {fmtMult(round.crashAt ?? round.serverMultiplier)}
-        </span>
+        <>
+          <span className="num" style={{ fontSize: 20 }}>
+            {fmtMult(round.crashAt ?? round.serverMultiplier)}
+          </span>
+          <span style={{ fontSize: 11.5, fontWeight: 700, opacity: 0.8 }}>
+            {round.phase === 'FLYING' ? 'шар в воздухе' : 'раунд завершён'}
+          </span>
+        </>
       )}
-
-      <div className="grow" />
-
-      <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.55 }}>
-        {round.roundId} · участников {round.betCount}
-      </span>
-      <button className="chip chip-sm" onClick={onOpenRecent}>
-        Недавние
-      </button>
-    </div>
+    </span>
   )
 }
 
@@ -772,7 +787,7 @@ function RoundBar({ round, onOpenRecent }: { round: RoundState; onOpenRecent: ()
 function Participants({ bets, meId }: { bets: BetView[]; meId?: string }) {
   if (bets.length === 0) {
     return (
-      <div className="panel" style={{ padding: '11px 16px' }}>
+      <div className="panel" style={{ padding: '12px 16px', flexShrink: 0 }}>
         <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.5 }}>
           В этом раунде пока никого — станьте первым.
         </span>
@@ -781,9 +796,9 @@ function Participants({ bets, meId }: { bets: BetView[]; meId?: string }) {
   }
 
   return (
-    <div className="panel" style={{ padding: '11px 16px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+    <div className="panel" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 7, flexShrink: 0 }}>
       <span className="label">В раунде · {bets.length}</span>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 120, overflowY: 'auto' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 108, overflowY: 'auto' }}>
         {bets.map((bet) => (
           <div
             key={bet.playerId}

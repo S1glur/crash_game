@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Manrope:wght@500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@500;600;700;800&display=swap');
 
 :root {
   /* Сумеречное небо Alto: сверху ночь, внизу тёплый горизонт */
@@ -21,13 +21,30 @@
   --emerald: #2c6b52;
   --emerald-lt: #67c79b;
 
-  --panel: rgba(16, 13, 32, 0.68);
-  --panel-strong: rgba(16, 13, 32, 0.86);
+  /*
+    Поверхности набраны сплошным цветом, а не просвечивающей подложкой:
+    прозрачные панели поверх сцены меняли контраст текста от кадра к кадру,
+    и на светлом горизонте подписи тонули. Разницу между уровнями держит тон,
+    поэтому обводки почти везде убраны.
+  */
+  --surface: #191533;
+  --surface-2: #221c45;
+  --surface-hi: #2a2150;
+
+  --panel: var(--surface);
+  --panel-strong: #14112b;
   --line: rgba(242, 234, 219, 0.16);
   --line-soft: rgba(242, 234, 219, 0.1);
 
+  /* Скругления одной шкалой: мелкое — чипы и плитки, крупное — карточки. */
+  --r-sm: 14px;
+  --r-md: 18px;
+  --r-card: 26px;
+
   --serif: 'Playfair Display', Georgia, serif;
   --sans: 'Manrope', 'Segoe UI', system-ui, sans-serif;
+  /* Заголовки словами — Cormorant: прежний Playfair в словах читался как Times. */
+  --head: 'Cormorant Garamond', Georgia, serif;
 
   color-scheme: dark;
 }
@@ -72,18 +89,26 @@ button:disabled {
   color: rgba(242, 234, 219, 0.55);
 }
 
+/* Цифры — Playfair, и только они: шрифт выбран под цифры и в словах спорит. */
 .num {
   font-family: var(--serif);
   font-weight: 700;
   letter-spacing: 0.01em;
 }
 
+.head {
+  font-family: var(--head);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
 /* --- поверхности --- */
 
 .panel {
   background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 4px;
+  /* Рамка прозрачная, но есть: экраны подсвечивают ею состояние (borderColor). */
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
 }
 
 .hr {
@@ -98,7 +123,7 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: 14px;
-  border-radius: 3px;
+  border-radius: var(--r-md);
   font-size: 14px;
   font-weight: 800;
   letter-spacing: 0.24em;
@@ -127,7 +152,7 @@ button:disabled {
 }
 
 .btn-ghost {
-  border: 1px solid rgba(242, 234, 219, 0.4);
+  border: 1px solid rgba(242, 234, 219, 0.32);
   color: var(--cream);
   letter-spacing: 0.18em;
   font-size: 12.5px;

@@ -32,15 +32,21 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 8px 16px;
-  background: rgba(16, 13, 32, 0.6);
-  border: 1px solid rgba(242, 234, 219, 0.2);
-  border-radius: 3px;
+  padding: 9px 17px;
+  background: var(--surface);
+  /* Рамка прозрачная: её показывают только там, где чип выбран (borderColor). */
+  border: 1px solid transparent;
+  border-radius: 999px;
+  transition: background 0.15s ease;
   font-size: 11.5px;
   font-weight: 800;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.chip:hover:not(:disabled) {
+  background: var(--surface-2);
 }
 
 .chip-amber {
@@ -91,45 +97,155 @@
 
 /* --- экран ставки --- */
 
+/*
+  Фон — та же сцена, что в полёте, но размытая: на экране ставок поверх неё
+  лежит плотная карточка с цифрами, и резкие силуэты гор спорили с ними за
+  внимание. Обёртка вылезает за края на 26px, иначе размытие обнажает светлую
+  кайму по периметру экрана.
+*/
+.bet-scene {
+  position: absolute;
+  inset: -26px;
+  z-index: 0;
+  filter: blur(3px);
+}
+
 .bet-body {
   flex-grow: 1;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 640px);
+  gap: 22px;
   min-height: 0;
 }
 
-.bet-col {
+/* Левая половина — сцена: шар, под ним выбор темы, дальше справочные панели. */
+.bet-stage {
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-height: 0;
 }
 
-.bet-row {
+.bet-balloon {
+  position: relative;
+  flex-grow: 1;
+  min-height: 170px;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 10px 16px;
-  background: rgba(16, 13, 32, 0.55);
-  border: 1px solid rgba(242, 234, 219, 0.14);
-  border-radius: 3px;
+  justify-content: center;
+}
+
+/* Шар ужимается вместе с колонкой, а не вылезает за неё на низких экранах. */
+.bet-balloon svg {
+  max-height: 100%;
+}
+
+.theme-row {
+  display: flex;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+/*
+  Выбор темы стоит прямо под шаром: он меняет именно то, что нарисовано выше,
+  и на прежнем месте (отдельной строкой у низа сцены) связь не читалась.
+*/
+.theme-pick {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 2px solid transparent;
+  border-radius: var(--r-md);
   text-align: left;
-  width: 100%;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: background 0.15s ease;
 }
 
-.bet-row:hover:not(:disabled) {
-  border-color: rgba(242, 234, 219, 0.34);
+.theme-pick:hover {
+  background: var(--surface-2);
 }
 
-.bet-row[data-selected='true'] {
-  background: var(--amber-dim);
+.theme-pick[data-active='true'] {
+  background: var(--surface-hi);
+}
+
+/* Правая половина — одна карточка: всё, что игрок делает, лежит в ней. */
+.bet-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 26px;
+  background: var(--surface);
+  border-radius: var(--r-card);
+  box-shadow: 0 26px 60px rgba(10, 7, 26, 0.5);
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(242, 234, 219, 0.25) transparent;
+}
+
+.bet-sep {
+  height: 1px;
+  background: rgba(242, 234, 219, 0.08);
+  flex-shrink: 0;
+}
+
+/* Бустеры плиткой в один ряд: их сравнивают между собой, а не читают списком. */
+.boost-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+  gap: 9px;
+}
+
+.boost-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 14px 10px;
+  background: var(--surface-2);
+  border: 2px solid transparent;
+  border-radius: var(--r-md);
+  transition: background 0.15s ease;
+}
+
+.boost-tile:hover {
+  background: var(--surface-hi);
+}
+
+.boost-tile[data-selected='true'] {
+  background: var(--surface-hi);
   border-color: var(--amber);
 }
 
-.bet-row:disabled {
-  opacity: 0.45;
+/*
+  Нижняя полоса: коэффициенты прошлых полётов во всю ширину. Справа оставлен
+  коридор под постоянные угловые кнопки (звук и админка) — они висят поверх
+  экрана, и без отступа последняя плашка уезжала под них.
+*/
+.bet-strip {
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+  flex-shrink: 0;
+  padding-right: 136px;
+}
+
+.flight-chips {
+  display: flex;
+  gap: 7px;
+}
+
+.flight-chip {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 11px 4px;
+  border-radius: var(--r-sm);
+  text-align: center;
+  font-size: 15px;
+  white-space: nowrap;
 }
 
 /* --- экран темы --- */
@@ -203,6 +319,19 @@
   }
   .bet-body {
     overflow-y: auto;
+  }
+  .bet-card {
+    overflow: visible;
+  }
+  /* Угловые кнопки на узком экране уходят под полосу — коридор не нужен. */
+  .bet-strip {
+    padding-right: 0;
+  }
+  .flight-chips {
+    overflow-x: auto;
+  }
+  .flight-chip {
+    flex: 0 0 62px;
   }
   .flight-bottom .btn {
     height: 60px;
