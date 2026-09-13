@@ -4,18 +4,23 @@ import { AccountChip } from '../components/AccountChip'
 import { RecentRoundsModal } from '../components/RecentRoundsModal'
 import type { RoundState } from '../store/gameStore'
 import { Balloon } from '../components/Balloon'
-import { LootChart } from '../components/LootChart'
 import { PuzzleIcon } from '../components/PuzzleIcon'
 import { Scene } from '../components/Scene'
 import { useCountdown } from '../utils/useCountdown'
 import { useGame } from '../store/gameStore'
-import { fmtInt, fmtMult, fmtSigned } from '../utils/format'
+import { fmtInt, fmtMult } from '../utils/format'
 
-/** Коэффициент, по которому показываем «сколько получится» — медиана истории. */
-const REFERENCE_MULTIPLIER = 2
 
 /** Сколько прошлых полётов помещается в нижнюю полосу, не мельча цифры. */
 const STRIP_FLIGHTS = 12
+
+/*
+  Сколько участников видно в списке разом. Остальные прокручиваются внутри
+  панели: высота списка не зависит от числа игроков, поэтому десять человек
+  в раунде не сдвигают ни шар, ни выбор темы, ни нижнюю полосу.
+*/
+const PARTICIPANT_ROWS = 5
+const PARTICIPANT_ROW_H = 22
 
 export function BetScreen({
   onOpenRules,
@@ -78,12 +83,10 @@ export function BetScreen({
     Маркер бустера появляется уже в полёте, на шкале уровней, как требует
     сценарий 4 ТЗ.
 
-    Из-за этого выплата считается в двух видах: без бустера — то, что игрок
-    получит наверняка, и с бустером — если шар дойдёт до его уровня.
+    Выплату экран и не обещает: она зависит от того, где лопнет шар, а
+    прежняя строка «при ×2,00 вернётся столько-то» читалась как обещание
+    удвоения. Остаётся только то, что известно точно, — цена.
   */
-  const payoutAtReference = Math.floor(stake * REFERENCE_MULTIPLIER)
-  const payoutWithBoost = (option: BoostOption) =>
-    Math.floor(stake * REFERENCE_MULTIPLIER * option.boostMultiplier)
 
   /*
     Потолок ставки зависит от выбранного бустера: за ×4 доплата полторы ставки,
@@ -107,13 +110,6 @@ export function BetScreen({
   const cheapest = stakeLimits.min
   const stuck = balance < cheapest
 
-  const lootProbabilities = useMemo(() => {
-    const themeConfig = config?.themes?.[theme]
-    if (!themeConfig) return []
-    return Object.entries(themeConfig.loot_probabilities)
-      .sort((a, b) => Number(a[0].match(/\d+/)?.[0]) - Number(b[0].match(/\d+/)?.[0]))
-      .map(([, value]) => value)
-  }, [config, theme])
 
   /*
     Полёты своей темы. Список приходит по всем темам сразу, а у зелёной и
@@ -223,7 +219,6 @@ export function BetScreen({
 
             {round && <Participants bets={round.bets} meId={user?.id} />}
 
-            {lootProbabilities.length > 0 && <LootChart probabilities={lootProbabilities} />}
           </div>
 
           {/* справа — одна карточка: всё, что игрок делает, лежит в ней */}
@@ -278,7 +273,7 @@ export function BetScreen({
                   const fee = Math.ceil(stake * option.priceFactor)
                   const affordable = stake + fee <= balance
                   const isSelected = option.id === selectedBoostId
-                  const payout = option.boostMultiplier > 1 ? payoutWithBoost(option) : payoutAtReference
+                  const paid = option.boostMultiplier > 1
                   return (
                     <button
                       key={option.id}
@@ -286,8 +281,8 @@ export function BetScreen({
                       data-selected={isSelected}
                       aria-pressed={isSelected}
                       title={
-                        option.boostMultiplier > 1
-                          ? `Доплата ${fmtInt(fee)}. Если шар дойдёт до бустера, выигрыш умножится на ${option.boostMultiplier}`
+                        paid
+                          ? `Доплата ${fmtInt(fee)}. Если шар дойдёт до бустера, выигрыш умножится на ${fmtMult(option.boostMultiplier)}`
                           : 'Только рост коэффициента, без доплаты'
                       }
                       onClick={() =>
@@ -296,10 +291,10 @@ export function BetScreen({
                       style={{ opacity: affordable ? 1 : 0.45 }}
                     >
                       <span style={{ fontSize: 12.5, fontWeight: 800 }}>
-                        {option.boostMultiplier > 1 ? `×${option.boostMultiplier}` : 'Без'}
+                        {boostName(option, boostOptions)}
                       </span>
                       <span className="num" style={{ fontSize: 22, lineHeight: 1 }}>
-                        {fee > 0 ? `+${fmtInt(fee)}` : '—'}
+                        ×{fmtMult(option.boostMultiplier)}
                       </span>
                       <span
                         style={{
@@ -312,34 +307,23 @@ export function BetScreen({
                               : 'rgba(242,234,219,.45)',
                         }}
                       >
-                        {affordable
-                          ? `→ ${fmtInt(payout)}`
-                          : `не хватает ${fmtInt(stake + fee - balance)}`}
+                        {!affordable
+                          ? `не хватает ${fmtInt(stake + fee - balance)}`
+                          : paid
+                            ? `+${fmtInt(fee)} к ставке`
+                            : 'без доплаты'}
                       </span>
                     </button>
                   )
                 })}
               </div>
 
-              {/* Из чего складывается списание и что вернётся — иначе доплата выглядит скрытой. */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11.5, fontWeight: 600, opacity: 0.62, flexWrap: 'wrap' }}>
-                <span>
-                  при ×{fmtMult(REFERENCE_MULTIPLIER)} вернётся {fmtInt(payoutAtReference)}
-                  {selected && selected.boostMultiplier > 1
-                    ? `, с бустером ${fmtInt(payoutWithBoost(selected))}`
-                    : ''}
-                  {' · чистыми '}
-                  {fmtSigned(payoutAtReference - totalCost)}
+              {/* Из чего складывается списание — иначе доплата выглядит скрытой. */}
+              {boostFee > 0 && (
+                <span style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.62 }}>
+                  спишется {fmtInt(totalCost)}: ставка {fmtInt(stake)} + бустер за {fmtInt(boostFee)}
                 </span>
-                {boostFee > 0 && (
-                  <>
-                    <div className="grow hr" />
-                    <span>
-                      ставка {fmtInt(stake)} + бустер за {fmtInt(boostFee)}
-                    </span>
-                  </>
-                )}
-              </div>
+              )}
             </div>
 
             <AutoCashout
@@ -454,6 +438,26 @@ export function BetScreen({
       )}
     </div>
   )
+}
+
+/**
+ * Как назвать бустер на плитке.
+ *
+ * Не «×2»: множители живут в настройках (boost_tiers в game.json) и
+ * администратор меняет их прямо на защите. Название, собранное из
+ * коэффициента, после такой правки врало бы — поэтому имя даёт порядковый
+ * номер варианта, а сам коэффициент показан отдельной строкой и приходит
+ * с сервера.
+ *
+ * Слово «уровень» занято шкалой полёта (9 и 12 уровней у тем): бустер
+ * «второго уровня» читался бы как бустер на втором уровне высоты.
+ */
+function boostName(option: BoostOption, options: BoostOption[]): string {
+  if (option.boostMultiplier <= 1) return 'Без бустера'
+  // Нумеруем только платные варианты и по их порядку в конфиге, а не по
+  // индексу в общем списке: иначе «без бустера» посередине сдвинуло бы счёт.
+  const paid = options.filter((item) => item.boostMultiplier > 1)
+  return `Бустер ${paid.indexOf(option) + 1}`
 }
 
 /**
@@ -783,7 +787,12 @@ function PhasePill({ round }: { round: RoundState }) {
   )
 }
 
-/** Кто уже в раунде. Тот же список виден и во время полёта. */
+/**
+ * Кто уже в раунде. Тот же список виден и во время полёта.
+ *
+ * Высота фиксирована по PARTICIPANT_ROWS: при полном столе список
+ * прокручивается внутри себя, а не растягивает колонку.
+ */
 function Participants({ bets, meId }: { bets: BetView[]; meId?: string }) {
   if (bets.length === 0) {
     return (
@@ -798,7 +807,15 @@ function Participants({ bets, meId }: { bets: BetView[]; meId?: string }) {
   return (
     <div className="panel" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 7, flexShrink: 0 }}>
       <span className="label">В раунде · {bets.length}</span>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 108, overflowY: 'auto' }}>
+      <div
+        className="scroll-y"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 5,
+          maxHeight: PARTICIPANT_ROWS * PARTICIPANT_ROW_H,
+        }}
+      >
         {bets.map((bet) => (
           <div
             key={bet.playerId}
