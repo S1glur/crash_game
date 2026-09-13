@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AdminModal } from './components/AdminModal'
+import { FairPlayModal } from './components/FairPlayModal'
 import { LeaderboardModal } from './components/LeaderboardModal'
 import { RulesModal } from './components/RulesModal'
 import { TutorialModal } from './components/TutorialModal'
@@ -32,6 +33,7 @@ export default function App() {
   const [tutorialOpen, setTutorialOpen] = useState(false)
   const [leaderboardOpen, setLeaderboardOpen] = useState(false)
   const [adminOpen, setAdminOpen] = useState(false)
+  const [fairOpen, setFairOpen] = useState(false)
 
   useEffect(() => {
     void init()
@@ -62,9 +64,10 @@ export default function App() {
           onOpenRules={() => setRulesOpen(true)}
           onOpenTutorial={() => setTutorialOpen(true)}
           onOpenLeaderboard={() => setLeaderboardOpen(true)}
+          onOpenFairPlay={() => setFairOpen(true)}
         />
       )}
-      {phase === 'flight' && <FlightScreen />}
+      {phase === 'flight' && <FlightScreen onOpenFairPlay={() => setFairOpen(true)} />}
       {phase === 'result' && <ResultScreen />}
       {phase === 'report' && <ReportScreen />}
 
@@ -76,6 +79,7 @@ export default function App() {
       {rulesOpen && <RulesModal onClose={() => setRulesOpen(false)} />}
       {leaderboardOpen && <LeaderboardModal onClose={() => setLeaderboardOpen(false)} />}
       {adminOpen && <AdminModal onClose={() => setAdminOpen(false)} />}
+      {fairOpen && <FairPlayModal onClose={() => setFairOpen(false)} />}
 
       {error && (
         <div
@@ -165,31 +169,31 @@ function CornerControls({ onOpenAdmin }: { onOpenAdmin: () => void }) {
       {/* Отчётность и экономика игры — только администратору; сервер всё равно откажет остальным. */}
       {user?.role === 'ADMIN' && (
         <button
-          className="chip"
+          className="chip chip-admin"
           onClick={openReport}
-          title="Отчётность"
-          aria-label="Отчётность"
-          style={buttonStyle}
+          title="Отчётность для администратора"
         >
           <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7">
             <path d="M3 16.5h14" strokeLinecap="round" />
             <path d="M5.5 16.5v-5M9.2 16.5V5.5M12.9 16.5v-7.5M16.5 16.5v-3.5" strokeLinecap="round" />
           </svg>
+          <span className="admin-tag">admin</span>
+          Отчётность
         </button>
       )}
 
       {user?.role === 'ADMIN' && (
         <button
-          className="chip"
+          className="chip chip-admin"
           onClick={onOpenAdmin}
-          title="Параметры игры (админка)"
-          aria-label="Параметры игры"
-          style={buttonStyle}
+          title="Параметры игры — применятся у всех игроков"
         >
-        <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
-          <circle cx="10" cy="10" r="2.6" />
-          <path d="M10 2.4v2M10 15.6v2M17.6 10h-2M4.4 10h-2M15.4 4.6l-1.4 1.4M6 14l-1.4 1.4M15.4 15.4L14 14M6 6L4.6 4.6" strokeLinecap="round" />
-        </svg>
+          <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
+            <circle cx="10" cy="10" r="2.6" />
+            <path d="M10 2.4v2M10 15.6v2M17.6 10h-2M4.4 10h-2M15.4 4.6l-1.4 1.4M6 14l-1.4 1.4M15.4 15.4L14 14M6 6L4.6 4.6" strokeLinecap="round" />
+          </svg>
+          <span className="admin-tag">admin</span>
+          Настройки раундов
         </button>
       )}
 

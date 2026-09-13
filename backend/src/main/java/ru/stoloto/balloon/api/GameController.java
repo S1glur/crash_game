@@ -3,6 +3,7 @@ package ru.stoloto.balloon.api;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Limit;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -37,6 +38,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.time.Instant;
 
 /** REST-часть контракта из docs/api.md. Все операции идут от имени вошедшего игрока. */
 @RestController
@@ -51,7 +53,11 @@ public class GameController {
     private final PlayerRepository playerRepository;
     private final CurrentPlayer currentPlayer;
     private final LeaderboardService leaderboardService;
+    private final SimpMessagingTemplate messaging;
     private final Path rulesPath;
+
+    /** Канал, в который сервер сообщает, что конфигурация игры изменилась. */
+    private static final String CONFIG_TOPIC = "/topic/config";
 
     public GameController(RoundService roundService,
                           RoundPersistence persistence,
@@ -61,6 +67,7 @@ public class GameController {
                           PlayerRepository playerRepository,
                           CurrentPlayer currentPlayer,
                           LeaderboardService leaderboardService,
+                          SimpMessagingTemplate messaging,
                           @Value("${game.rules-path}") String rulesPath) {
         this.roundService = roundService;
         this.persistence = persistence;
@@ -70,6 +77,7 @@ public class GameController {
         this.playerRepository = playerRepository;
         this.currentPlayer = currentPlayer;
         this.leaderboardService = leaderboardService;
+        this.messaging = messaging;
         this.rulesPath = Paths.get(rulesPath).toAbsolutePath().normalize();
     }
 
@@ -357,7 +365,16 @@ public class GameController {
      */
     @PutMapping(value = "/config", consumes = "application/json", produces = "application/json")
     public String updateConfig(@RequestBody String rawJson) {
-        return configService.save(rawJson);
+        String saved = configService.save(rawJson);
+        /*
+          Об изменении объявляем всем вкладкам. Сам полёт сервер и так считает
+          по свежему конфигу, но у остальных игроков на экране оставались старые
+          подписи: коэффициент бустера, границы ставки, число уровней темы. Игрок
+          видел ×2, а сервер платил по новому значению — и узнать об этом можно
+          было только перезагрузив страницу.
+        */
+        messaging.convertAndSend(CONFIG_TOPIC, (Object) Map.of("updatedAt", Instant.now().toString()));
+        return saved;
     }
 
     private Map<String, String> playerNames() {

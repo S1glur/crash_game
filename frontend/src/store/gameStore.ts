@@ -3,6 +3,7 @@ import { api } from '../api/client'
 import {
   closeSocket,
   connectSocket,
+  subscribeToConfig,
   subscribeToFeed,
   subscribeToLeaderboard,
   subscribeToRound,
@@ -102,6 +103,7 @@ interface GameStore {
   register: (username: string, password: string, displayName: string) => Promise<void>
   logout: () => Promise<void>
   reloadConfig: () => Promise<void>
+  applyConfigChange: () => Promise<void>
   setTheme: (theme: Theme) => void
   setStake: (value: number) => void
   selectBoost: (boostOptionId: string) => void
@@ -231,6 +233,31 @@ export const useGame = create<GameStore>((set, get) => ({
   /** Перечитать конфиг после сохранения в админке. */
   async reloadConfig() {
     set({ config: await api.config() })
+  },
+
+  /*
+    Настройки поменяли — подтягиваем всё, что зависит от них на экране:
+    коэффициенты бустеров, границы ставки, число уровней тем. Раньше это
+    делала только вкладка администратора, и остальные игроки продолжали
+    видеть старые подписи к новым правилам.
+
+    Раунды и ставки не трогаем: их состояние живёт своей подпиской, и
+    подмена round здесь оборвала бы отсчёт до взлёта.
+  */
+  async applyConfigChange() {
+    const [state, config] = await Promise.all([api.state(), api.config()])
+    set((current) => ({
+      config,
+      stakeLimits: state.stake,
+      boostOptions: state.boostOptions,
+      levelsCount: state.levelsCount,
+      // Ставка могла оказаться вне новых границ — возвращаем её внутрь.
+      stake: Math.min(Math.max(current.stake, state.stake.min), state.stake.max),
+      // Выбранный бустер мог исчезнуть из конфига совсем.
+      selectedBoostId: state.boostOptions.some((option) => option.id === current.selectedBoostId)
+        ? current.selectedBoostId
+        : (state.boostOptions[0]?.id ?? 'no-boost'),
+    }))
   },
 
 
@@ -422,6 +449,11 @@ async function loadGame(set: (partial: Partial<GameStore>) => void) {
   // которые больше нигде не показываются.
   subscribeToFeed(() => {
     void useGame.getState().loadRecentRounds()
+  })
+
+  // Правка настроек в админке доезжает до всех вкладок, а не только до её.
+  subscribeToConfig(() => {
+    void useGame.getState().applyConfigChange()
   })
 
   set({

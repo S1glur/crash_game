@@ -26,10 +26,12 @@ export function BetScreen({
   onOpenRules,
   onOpenTutorial,
   onOpenLeaderboard,
+  onOpenFairPlay,
 }: {
   onOpenRules: () => void
   onOpenTutorial: () => void
   onOpenLeaderboard: () => void
+  onOpenFairPlay: () => void
 }) {
   const theme = useGame((s) => s.theme)
   const setTheme = useGame((s) => s.setTheme)
@@ -390,7 +392,11 @@ export function BetScreen({
           </div>
         </div>
 
-        <div className="bet-strip">
+        {/*
+          Коридор справа — под угловые кнопки, висящие поверх экрана. У
+          администратора они шире: там ещё «Отчётность» и «Настройки раундов».
+        */}
+        <div className="bet-strip" style={user?.role === 'ADMIN' ? { paddingRight: 430 } : undefined}>
           <div style={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 9 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <span className="label">Прошлые полёты · новые слева</span>
@@ -402,6 +408,14 @@ export function BetScreen({
               )}
               <button className="chip chip-sm" onClick={() => setRecentOpen(true)}>
                 Недавние
+              </button>
+              {/* Проверка честности: отпечаток раунда, seed и пересчёт SHA-256. */}
+              <button className="chip chip-sm" onClick={onOpenFairPlay} title="Как проверить, что исход не подменили">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--emerald-lt)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 3l7.5 3.4v5.1c0 4.6-3.2 8.8-7.5 10-4.3-1.2-7.5-5.4-7.5-10V6.4L12 3z" />
+                  <path d="M9 12l2.2 2.2L15.5 10" />
+                </svg>
+                Честная игра
               </button>
             </div>
 

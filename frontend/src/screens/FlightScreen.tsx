@@ -7,7 +7,7 @@ import { Scene } from '../components/Scene'
 import { useGame } from '../store/gameStore'
 import { fmtInt, fmtMult, levelProgress } from '../utils/format'
 
-export function FlightScreen() {
+export function FlightScreen({ onOpenFairPlay }: { onOpenFairPlay: () => void }) {
   const round = useGame((s) => s.round)
   const theme = useGame((s) => s.theme)
   const balance = useGame((s) => s.balance)
@@ -316,6 +316,7 @@ export function FlightScreen() {
             boostFired={flight.boostApplied}
             boostLevel={flight.boostLevelIndex}
             resultHash={flight.resultHash}
+            onOpenFairPlay={onOpenFairPlay}
           />
         </div>
 
@@ -403,6 +404,7 @@ function RoundJournal({
   boostFired,
   boostLevel,
   resultHash,
+  onOpenFairPlay,
 }: {
   stake: number
   boostFee: number
@@ -411,6 +413,7 @@ function RoundJournal({
   boostFired: boolean
   boostLevel: number | null
   resultHash: string
+  onOpenFairPlay: () => void
 }) {
   return (
     <div className="panel wide-only" style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -487,16 +490,42 @@ function RoundJournal({
             Исход определён до взлёта
           </span>
         </div>
-        <span
+        {/*
+          Отпечаток кликабелен: сам по себе он ничего не доказывает, пока игрок
+          не знает, что с ним делать. По нажатию открывается разбор с seed-ом,
+          строкой раунда и пересчётом SHA-256.
+        */}
+        <button
+          onClick={onOpenFairPlay}
+          title="Как проверить, что исход не подменили"
           style={{
-            fontSize: 11,
-            fontFamily: 'ui-monospace, monospace',
-            color: 'rgba(242,234,219,.38)',
-            wordBreak: 'break-all',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+            alignItems: 'flex-start',
+            textAlign: 'left',
           }}
         >
-          {resultHash.slice(0, 16)}…
-        </span>
+          <span
+            style={{
+              fontSize: 11,
+              fontFamily: 'ui-monospace, monospace',
+              color: 'rgba(242,234,219,.55)',
+              wordBreak: 'break-all',
+            }}
+          >
+            {resultHash.slice(0, 16)}…
+          </span>
+          <span
+            style={{
+              fontSize: 10.5,
+              fontWeight: 700,
+              color: 'var(--emerald-lt)',
+            }}
+          >
+            Проверить исход →
+          </span>
+        </button>
       </div>
     </div>
   )

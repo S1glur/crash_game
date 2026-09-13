@@ -172,8 +172,21 @@ export function TutorialModal({ onClose }: { onClose: () => void }) {
           <span style={{ fontSize: 11, fontWeight: 700, opacity: 0.45 }}>
             {step + 1} из {STEPS.length}
           </span>
-          <button className="chip chip-sm" onClick={onClose}>
-            Пропустить
+          {/*
+            Кнопки «Пропустить» здесь нет: обучение короткое, и предлагать
+            его пролистать — значит предлагать не читать. Выход остаётся
+            крестиком, Escape и щелчком по фону.
+          */}
+          <button
+            className="chip chip-sm"
+            onClick={onClose}
+            title="Закрыть обучение"
+            aria-label="Закрыть обучение"
+            style={{ padding: '5px 9px' }}
+          >
+            <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M5 5l10 10M15 5L5 15" />
+            </svg>
           </button>
         </div>
 

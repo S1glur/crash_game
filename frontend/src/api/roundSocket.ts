@@ -72,6 +72,17 @@ export function subscribeToLeaderboard(onRows: (rows: LeaderRow[]) => void) {
   return subscribeToTopic<{ rows: LeaderRow[] }>('/topic/leaderboard', (body) => onRows(body.rows))
 }
 
+/**
+ * Настройки игры изменились в админке.
+ *
+ * Сервер присылает только отметку времени: значения клиент перечитывает сам,
+ * иначе пришлось бы дублировать в событии весь конфиг и держать две формы
+ * одних и тех же данных.
+ */
+export function subscribeToConfig(onChanged: () => void) {
+  return subscribeToTopic<{ updatedAt: string }>('/topic/config', () => onChanged())
+}
+
 /** Лента завершённых раундов: чужая игра видна без перезагрузки страницы. */
 export function subscribeToFeed(onItem: (item: FeedItem) => void) {
   return subscribeToTopic<FeedItem>('/topic/feed', onItem)
