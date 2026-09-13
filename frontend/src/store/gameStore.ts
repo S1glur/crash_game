@@ -751,6 +751,23 @@ function handleRoundEvent(
       if (round.myBet) {
         sound.crash()
         void finishRound(event.roundId, set, get, true)
+      } else {
+        /*
+          Зритель без ставки фазу итога не ждёт. Таблицы результата у него
+          нет — показывать нечего, и все одиннадцать секунд он смотрел бы на
+          лопнувший шар, не имея возможности ничего сделать. Возвращаем в
+          лобби, как только доиграет разрыв: там уже можно собрать ставку,
+          которую сервер поставит в очередь на следующий раунд.
+        */
+        setTimeout(() => {
+          const state = get()
+          const same = state.round?.roundId === event.roundId
+          // За эту секунду игрок мог сменить тему или уже поставить —
+          // выдёргивать его с другого экрана нельзя.
+          if (state.phase === 'flight' && same && !state.round?.myBet) {
+            set({ phase: 'bet', result: null })
+          }
+        }, BURST_HOLD_MS)
       }
       void get().loadRecentRounds()
       break
