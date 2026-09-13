@@ -1,18 +1,24 @@
 import { useMemo } from 'react'
-import type { HistoryItem } from '../api/types'
+import type { RecentRound } from '../api/types'
 import { fmtMult } from '../utils/format'
 
 /** Высота области столбцов в пикселях — от неё считаются и столбцы, и линия 2,00. */
 const BAR_AREA = 76
 
 /**
- * История завершённых раундов всех игроков прототипа (обязательный пункт ТЗ),
- * показанная гистограммой: сразу видно, как часто бывают ранние крахи.
+ * История завершённых полётов темы, показанная гистограммой: сразу видно,
+ * как часто бывают ранние крахи.
+ *
+ * Строится по РАУНДАМ, а не по ставкам. Раньше сюда шла история ставок, и
+ * график врал дважды: раунд с тремя участниками рисовался тремя столбцами, а
+ * у тех, кто успел забрать, в столбец попадал их личный момент выхода вместо
+ * точки краха. Сводка снизу от этого систематически занижалась — точки выхода
+ * всегда ниже точки краха.
  */
-export function HistoryChart({ items }: { items: HistoryItem[] }) {
+export function HistoryChart({ flights }: { flights: RecentRound[] }) {
   const stats = useMemo(() => {
-    if (!items.length) return null
-    const values = items.map((item) => item.multiplier).filter((value) => Number.isFinite(value))
+    if (!flights.length) return null
+    const values = flights.map((flight) => flight.crashAt).filter((value) => Number.isFinite(value))
     if (!values.length) return null
     const sorted = [...values].sort((a, b) => a - b)
     return {
@@ -21,20 +27,20 @@ export function HistoryChart({ items }: { items: HistoryItem[] }) {
       max: sorted[sorted.length - 1],
       aboveTwoPct: Math.round((values.filter((value) => value >= 2).length / values.length) * 100),
     }
-  }, [items])
+  }, [flights])
 
   const maxValue = stats ? Math.max(stats.max, 2.2) : 1
 
   // Показываем последние 14: при большем числе подписи под столбцами сливаются,
   // а сводка снизу всё равно считается по всей выборке.
-  const bars = [...items].reverse().slice(-14)
+  const bars = [...flights].reverse().slice(-14)
 
   return (
     <div className="panel" style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 13 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
         <span className="label">Прошлые полёты</span>
         <div className="grow" />
-        <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.45 }}>● забрал · ✕ крах</span>
+        <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.45 }}>точка краха каждого раунда</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, opacity: 0.5 }}>
           <span style={{ width: 10, height: 3, background: 'var(--amber)' }} />
           отметка 2,00
@@ -61,24 +67,25 @@ export function HistoryChart({ items }: { items: HistoryItem[] }) {
             }}
           />
 
-          {bars.map((item) => {
-            const height = Math.max(4, (item.multiplier / maxValue) * BAR_AREA)
+          {bars.map((flight) => {
+            const height = Math.max(4, (flight.crashAt / maxValue) * BAR_AREA)
             const color =
-              item.multiplier >= 3
+              flight.crashAt >= 3
                 ? 'var(--amber)'
-                : item.multiplier >= 2
+                : flight.crashAt >= 2
                   ? '#e0904e'
-                  : item.multiplier >= 1.3
+                  : flight.crashAt >= 1.3
                     ? '#4e4874'
                     : '#7a4553'
-            const cashedOut = item.result === 'cashout'
 
             return (
               <div
-                key={item.roundId}
+                key={flight.roundId}
                 title={
-                  `${fmtMult(item.multiplier)} · ${cashedOut ? 'забрал' : 'крах'} · ставка ${item.stake}` +
-                  (item.totalPaid > item.stake ? ` (+${item.totalPaid - item.stake} за бустер)` : '')
+                  `${fmtMult(flight.crashAt)} · ` +
+                  (flight.betCount > 0
+                    ? `участников ${flight.betCount}, выплачено ${flight.totalWin}`
+                    : 'без ставок')
                 }
                 style={{
                   flex: '1 1 0',
@@ -117,12 +124,12 @@ export function HistoryChart({ items }: { items: HistoryItem[] }) {
                     opacity: 0.95,
                   }}
                 >
-                  {fmtMult(item.multiplier)}
+                  {fmtMult(flight.crashAt)}
                 </span>
 
-                {/* Исход раунда: точка — забрал, крестик — сгорело. */}
-                <span style={{ fontSize: 8, lineHeight: 1, opacity: 0.6, color }}>
-                  {cashedOut ? '●' : '✕'}
+                {/* Сколько человек летело этим раундом; пустой — точка вместо числа. */}
+                <span style={{ fontSize: 8, lineHeight: 1, opacity: 0.55 }}>
+                  {flight.betCount > 0 ? flight.betCount : '·'}
                 </span>
               </div>
             )

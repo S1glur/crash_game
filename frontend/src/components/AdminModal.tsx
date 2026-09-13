@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { fmtMult } from '../utils/format'
 import { api } from '../api/client'
 import { useGame } from '../store/gameStore'
 
@@ -84,7 +85,7 @@ export function AdminModal({ onClose }: { onClose: () => void }) {
         <Section title="Математическая модель">
           <Field
             label="alpha (преимущество организатора)"
-            hint="Ниже — чаще ранние крахи. Медиана краха = alpha / 0.5"
+            hint={`Медиана краха ${fmtMult(draft.crash_model.alpha * 2)}×. Каждый раунд с вероятностью ${Math.round((1 - draft.crash_model.alpha) * 100)} % лопнет сразу на 1,00×`}
             value={draft.crash_model.alpha}
             step={0.01}
             onChange={(v) => patch((n) => (n.crash_model.alpha = v))}
@@ -289,8 +290,20 @@ function Field({
         step={step}
         value={value}
         onChange={(e) => {
-          const parsed = Number(e.target.value)
-          if (!Number.isNaN(parsed)) onChange(parsed)
+          /*
+            Пустое поле — это не ноль. Number('') возвращает 0, а не NaN, и
+            прежняя проверка на NaN его пропускала: стоило стереть значение,
+            чтобы набрать новое, как в черновик уезжал ноль. Для alpha сервер
+            такое отклоняет, а для «очков за уровень» ноль допустим — и
+            начисление молча выключалось.
+
+            Пока поле пустое, прежнее значение остаётся в силе: браузер
+            показывает пустую строку, сохранять нечего.
+          */
+          const raw = e.target.value.trim()
+          if (raw === '') return
+          const parsed = Number(raw)
+          if (Number.isFinite(parsed)) onChange(parsed)
         }}
         style={{
           font: 'inherit',

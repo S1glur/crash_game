@@ -13,7 +13,6 @@ import type {
   BetView,
   BoostOption,
   GameConfig,
-  HistoryItem,
   LeaderRow,
   RecentRound,
   RoundEvent,
@@ -70,7 +69,6 @@ interface GameStore {
   boostOptions: BoostOption[]
   levelsCount: Record<Theme, number>
   config: GameConfig | null
-  history: HistoryItem[]
   /** Турнирная таблица всех участников — живая, приходит по WebSocket. */
   leaders: LeaderRow[]
   /** Сумма ставки, выбранная игроком; переживает раунды. */
@@ -103,7 +101,6 @@ interface GameStore {
   login: (username: string, password: string) => Promise<void>
   register: (username: string, password: string, displayName: string) => Promise<void>
   logout: () => Promise<void>
-  refreshHistory: () => Promise<void>
   reloadConfig: () => Promise<void>
   setTheme: (theme: Theme) => void
   setStake: (value: number) => void
@@ -169,7 +166,6 @@ export const useGame = create<GameStore>((set, get) => ({
   boostOptions: [],
   levelsCount: { green: 9, red: 12 },
   config: null,
-  history: [],
   leaders: [],
   stake: 50,
   selectedBoostId: 'no-boost',
@@ -224,7 +220,6 @@ export const useGame = create<GameStore>((set, get) => ({
         rounds: { green: null, red: null },
         result: null,
         recentRounds: [],
-        history: [],
         leaders: [],
         totalPoints: 0,
         rewards: [],
@@ -238,10 +233,6 @@ export const useGame = create<GameStore>((set, get) => ({
     set({ config: await api.config() })
   },
 
-  async refreshHistory() {
-    const history = await api.history(20)
-    set({ history: history.items })
-  },
 
   setTheme(theme) {
     sound.select()
@@ -363,7 +354,9 @@ export const useGame = create<GameStore>((set, get) => ({
 
   async loadRecentRounds() {
     try {
-      const { items } = await api.recentRounds(20)
+      // С запасом: список общий на обе темы, а гистограмма на экране ставок
+      // показывает только свою, и после фильтра от двадцати остаётся десяток.
+      const { items } = await api.recentRounds(40)
       set({ recentRounds: items })
     } catch (e) {
       set({ error: (e as Error).message })
@@ -399,11 +392,13 @@ export const useGame = create<GameStore>((set, get) => ({
  * местах одинаково: при открытии страницы, после входа и после регистрации.
  */
 async function loadGame(set: (partial: Partial<GameStore>) => void) {
-  const [state, config, history, leaderboard] = await Promise.all([
+  // Полёты нужны экрану ставок сразу: гистограмма «прошлые полёты» строится
+  // по ним, и без этого запроса она пустует до первого завершённого раунда.
+  const [state, config, leaderboard, recent] = await Promise.all([
     api.state(),
     api.config(),
-    api.history(20),
     api.leaderboard(),
+    api.recentRounds(40),
   ])
 
   // Соединение поднимаем сразу, а не в момент старта раунда: иначе первый же
@@ -421,8 +416,12 @@ async function loadGame(set: (partial: Partial<GameStore>) => void) {
 
   // Чужой раунд завершился — обновляем историю игр. Она общая по ТЗ, и без
   // этого чужие полёты появлялись бы в ней только после перезагрузки страницы.
+  // Чужой раунд завершился — обновляем гистограмму полётов. Историю ставок
+  // здесь раньше перечитывали целиком на каждое событие ленты: при трёх
+  // десятках игроков это десятки лишних запросов в минуту ради данных,
+  // которые больше нигде не показываются.
   subscribeToFeed(() => {
-    void useGame.getState().refreshHistory()
+    void useGame.getState().loadRecentRounds()
   })
 
   set({
@@ -433,7 +432,7 @@ async function loadGame(set: (partial: Partial<GameStore>) => void) {
     boostOptions: state.boostOptions,
     levelsCount: state.levelsCount,
     config,
-    history: history.items,
+    recentRounds: recent.items,
     leaders: leaderboard.rows,
     // Очки берём с сервера: теперь они копятся в аккаунте, а не в сессии вкладки.
     totalPoints: state.user.totalPoints,
@@ -721,7 +720,7 @@ function handleRoundEvent(
         sound.crash()
         void finishRound(event.roundId, set, get, true)
       }
-      void get().refreshHistory()
+      void get().loadRecentRounds()
       break
     }
   }
@@ -814,7 +813,7 @@ async function finishRound(
       totalPoints: get().totalPoints + result.points,
       rewards: [...get().rewards, result.reward.id].slice(-6),
     })
-    await get().refreshHistory()
+    await get().loadRecentRounds()
   } catch {
     // Ставки в этом раунде не было — показывать нечего, остаёмся в лобби.
   }

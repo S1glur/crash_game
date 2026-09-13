@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { BetView, StakeLimits } from '../api/types'
+import type { BetView, BoostOption, StakeLimits } from '../api/types'
 import { AccountChip } from '../components/AccountChip'
 import { RecentRoundsModal } from '../components/RecentRoundsModal'
 import type { RoundState } from '../store/gameStore'
@@ -10,16 +10,18 @@ import { PuzzleIcon } from '../components/PuzzleIcon'
 import { Scene } from '../components/Scene'
 import { useCountdown } from '../utils/useCountdown'
 import { useGame } from '../store/gameStore'
-import { fmtInt, fmtMult } from '../utils/format'
+import { fmtInt, fmtMult, fmtSigned } from '../utils/format'
 
 /** Коэффициент, по которому показываем «сколько получится» — медиана истории. */
 const REFERENCE_MULTIPLIER = 2
 
 export function BetScreen({
   onOpenRules,
+  onOpenTutorial,
   onOpenLeaderboard,
 }: {
   onOpenRules: () => void
+  onOpenTutorial: () => void
   onOpenLeaderboard: () => void
 }) {
   const theme = useGame((s) => s.theme)
@@ -37,7 +39,7 @@ export function BetScreen({
   const round = useGame((s) => s.round)
   const user = useGame((s) => s.user)
   const goToTheme = useGame((s) => s.goToTheme)
-  const history = useGame((s) => s.history)
+  const recentRounds = useGame((s) => s.recentRounds)
   const config = useGame((s) => s.config)
   const rewards = useGame((s) => s.rewards)
   const autoCashout = useGame((s) => s.autoCashout)
@@ -68,6 +70,31 @@ export function BetScreen({
   const thresholds = config?.themes?.[theme]?.level_thresholds ?? []
 
   /*
+    Коэффициент, на котором в этом раунде ждёт бустер. Сервер разыгрывает его
+    при создании раунда и отдаёт ещё до взлёта, поэтому обещание «с бустером
+    будет столько-то» можно сверить с реальностью, а не выдавать желаемое.
+
+    null — когда ставка уедет в следующий раунд: там уровень разыграется
+    заново, и называть его заранее нельзя.
+  */
+  const boostThreshold =
+    betting && round && round.boostLevelIndex !== null
+      ? (round.thresholds[round.boostLevelIndex] ?? null)
+      : null
+
+  /*
+    Успеет ли бустер сработать к опорному коэффициенту. Бустер умножает
+    выплату только после того, как шар прошёл его уровень, поэтому обещать
+    удвоение при выходе на ×2,00, когда бустер ждёт на 4,50×, значит обещать
+    вдвое больше, чем сервер заплатит.
+  */
+  const boostFiresByReference = boostThreshold !== null && boostThreshold <= REFERENCE_MULTIPLIER
+
+  /** Выплата при выходе на опорном коэффициенте — по той же формуле, что на сервере. */
+  const payoutAtReference = (option: BoostOption) =>
+    Math.floor(stake * REFERENCE_MULTIPLIER * (boostFiresByReference ? option.boostMultiplier : 1))
+
+  /*
     Потолок ставки зависит от выбранного бустера: за ×4 доплата полторы ставки,
     и на балансе 1000 максимум — 400, а не 1000. Считаем здесь, чтобы ползунок
     не заводил игрока в заведомо отклонённый сервером запрос.
@@ -96,6 +123,16 @@ export function BetScreen({
       .sort((a, b) => Number(a[0].match(/\d+/)?.[0]) - Number(b[0].match(/\d+/)?.[0]))
       .map(([, value]) => value)
   }, [config, theme])
+
+  /*
+    Полёты своей темы. Список приходит по всем темам сразу, а у зелёной и
+    красной разное число уровней и разные пороги — смешивать их в одной
+    гистограмме значит сравнивать несравнимое.
+  */
+  const themeFlights = useMemo(
+    () => recentRounds.filter((flight) => flight.theme === theme),
+    [recentRounds, theme],
+  )
 
   const showToast = (message: string) => {
     setToast(message)
@@ -128,6 +165,14 @@ export function BetScreen({
           </span>
 
           <div className="topbar-side topbar-side-end">
+            <button className="chip chip-amber" onClick={onOpenTutorial}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M9.6 9.4a2.5 2.5 0 1 1 3.2 2.4c-.6.2-.8.7-.8 1.3v.4" />
+                <path d="M12 16.8h.01" />
+              </svg>
+              Обучение
+            </button>
             <button className="chip" onClick={onOpenRules}>
               Правила
             </button>
@@ -208,7 +253,7 @@ export function BetScreen({
 
             {round && <Participants bets={round.bets} meId={user?.id} />}
 
-            <HistoryChart items={history} />
+            <HistoryChart flights={themeFlights} />
           </div>
 
           {/* правая колонка */}
@@ -279,11 +324,13 @@ export function BetScreen({
                         {option.boostMultiplier > 1 ? `Бустер ×${option.boostMultiplier}` : 'Без бустера'}
                       </span>
                       <span style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.55 }}>
-                        {affordable
-                          ? option.boostMultiplier > 1
-                            ? `окупится, если дотянуть до бустера`
-                            : 'только рост коэффициента'
-                          : `не хватает ${fmtInt(stake + fee - balance)} бонусов`}
+                        {!affordable
+                          ? `не хватает ${fmtInt(stake + fee - balance)} бонусов`
+                          : option.boostMultiplier === 1
+                            ? 'только рост коэффициента'
+                            : boostThreshold !== null
+                              ? `сработает на ${fmtMult(boostThreshold)}×`
+                              : 'уровень разыграется в новом раунде'}
                       </span>
                     </div>
                     <div className="grow" />
@@ -314,8 +361,9 @@ export function BetScreen({
                           color: isSelected ? 'var(--amber)' : 'rgba(242,234,219,.45)',
                         }}
                       >
-                        при ×{REFERENCE_MULTIPLIER.toFixed(2).replace('.', ',')} →{' '}
-                        {fmtInt(stake * REFERENCE_MULTIPLIER * option.boostMultiplier)}
+                        при ×{fmtMult(REFERENCE_MULTIPLIER)} →{' '}
+                        {fmtInt(payoutAtReference(option))} · чистыми{' '}
+                        {fmtSigned(payoutAtReference(option) - stake - fee)}
                       </span>
                     </div>
                   </button>

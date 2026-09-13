@@ -5,6 +5,9 @@ export const fmtInt = (value: number) =>
 
 export const fmtMult = (value: number) => value.toFixed(2).replace('.', ',')
 
+/** Со знаком: прибыль без плюса читается как оборот, а убыток теряется среди чисел. */
+export const fmtSigned = (value: number) => `${value > 0 ? '+' : ''}${fmtInt(value)}`
+
 /**
  * Позиция шара на шкале уровней — дробная, чтобы сцена ехала плавно,
  * а не прыгала при пересечении уровня. Между порогами интерполируем

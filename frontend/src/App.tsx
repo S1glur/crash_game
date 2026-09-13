@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AdminModal } from './components/AdminModal'
 import { LeaderboardModal } from './components/LeaderboardModal'
 import { RulesModal } from './components/RulesModal'
+import { TutorialModal } from './components/TutorialModal'
 import { AuthScreen } from './screens/AuthScreen'
 import { BetScreen } from './screens/BetScreen'
 import { FlightScreen } from './screens/FlightScreen'
@@ -18,6 +19,7 @@ export default function App() {
   const init = useGame((s) => s.init)
 
   const [rulesOpen, setRulesOpen] = useState(false)
+  const [tutorialOpen, setTutorialOpen] = useState(false)
   const [leaderboardOpen, setLeaderboardOpen] = useState(false)
   const [adminOpen, setAdminOpen] = useState(false)
 
@@ -40,6 +42,7 @@ export default function App() {
       {phase === 'bet' && (
         <BetScreen
           onOpenRules={() => setRulesOpen(true)}
+          onOpenTutorial={() => setTutorialOpen(true)}
           onOpenLeaderboard={() => setLeaderboardOpen(true)}
         />
       )}
@@ -51,6 +54,7 @@ export default function App() {
         <CornerControls onOpenAdmin={() => setAdminOpen(true)} />
       )}
 
+      {tutorialOpen && <TutorialModal onClose={() => setTutorialOpen(false)} />}
       {rulesOpen && <RulesModal onClose={() => setRulesOpen(false)} />}
       {leaderboardOpen && <LeaderboardModal onClose={() => setLeaderboardOpen(false)} />}
       {adminOpen && <AdminModal onClose={() => setAdminOpen(false)} />}

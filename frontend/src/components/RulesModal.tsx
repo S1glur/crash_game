@@ -85,6 +85,11 @@ function renderMarkdown(source: string) {
       flushList(`list-${index}`)
       return
     }
+    // Служебный комментарий в исходнике — не текст для игрока.
+    if (line.startsWith('<!--') || line.endsWith('-->')) {
+      flushList(`list-${index}`)
+      return
+    }
     if (/^[-*]\s/.test(line) || /^\d+\.\s/.test(line)) {
       list.push(line.replace(/^([-*]|\d+\.)\s/, ''))
       return
